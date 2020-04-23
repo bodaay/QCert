@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"strconv"
 
 	"github.com/labstack/echo"
 	"github.com/labstack/echo/middleware"
@@ -37,6 +38,9 @@ func configureWebServer(e *echo.Echo) {
 
 func configureAllRoutes(e *echo.Echo) {
 	rootCreateNewCertificateRoute(e)
+	intermediateCreateNewSignedCertificateRoute(e)
+	intermediateGetCSRRoute(e)
+	intermediateSignCSRRoute(e)
 }
 
 //Root Routes
@@ -64,10 +68,11 @@ func rootCreateNewCertificateRoute(e *echo.Echo) {
 			Organization:          r.Organization,
 			NotAfterNumberOfYears: r.NotAfterNumberOfYears,
 		}
-		tmepFolderName := path.Join("Out", "rootca")
+		MainOutPutFolderName := "Out"
+		tmepFolderName := path.Join(MainOutPutFolderName, "rootca")
 		os.Remove(tmepFolderName)
 		os.MkdirAll(tmepFolderName, os.ModePerm)
-		defer os.Remove(tmepFolderName)
+		defer os.RemoveAll(MainOutPutFolderName)
 		err = rr.CreateNewRootCA(tmepFolderName)
 		if err != nil {
 			return c.String(http.StatusBadRequest, err.Error())
@@ -127,24 +132,25 @@ func intermediateCreateNewSignedCertificateRoute(e *echo.Echo) {
 			Organization:          r.Organization,
 			NotAfterNumberOfYears: r.NotAfterNumberOfYears,
 		}
-		tmepFolderName := path.Join("Out", "intermediate")
+		MainOutPutFolderName := "Out"
+		tmepFolderName := path.Join(MainOutPutFolderName, "intermediate")
 		os.Remove(tmepFolderName)
 		os.MkdirAll(tmepFolderName, os.ModePerm)
-
+		defer os.RemoveAll(MainOutPutFolderName)
 		//Cert File
-		rootCertFile, err := c.FormFile("rootCertFile")
+		caRec, err := c.FormFile("rootCertFile")
 		if err != nil {
 			return c.String(http.StatusBadRequest, err.Error())
 		}
-		src0, err := rootCertFile.Open()
+		src0, err := caRec.Open()
 		if err != nil {
 			return c.String(http.StatusBadRequest, err.Error())
 		}
 		defer src0.Close()
 
 		// Destination
-		rootFileFinal := path.Join(tmepFolderName, "rootca.cert")
-		dst0, err := os.Create(rootFileFinal)
+		caCertFinal := path.Join(tmepFolderName, "rootca.cert")
+		dst0, err := os.Create(caCertFinal)
 		if err != nil {
 			return c.String(http.StatusBadRequest, err.Error())
 		}
@@ -156,35 +162,38 @@ func intermediateCreateNewSignedCertificateRoute(e *echo.Echo) {
 		dst0.Close()
 
 		//Key File
-		rootCertPrivateKey, err := c.FormFile("rootCertPrivateKey")
+		caPriv, err := c.FormFile("rootCertPrivateKey")
 		if err != nil {
 			return c.String(http.StatusBadRequest, err.Error())
 		}
-		src, err := rootCertFile.Open()
+		src1, err := caPriv.Open()
 		if err != nil {
 			return c.String(http.StatusBadRequest, err.Error())
 		}
-		defer src.Close()
+		defer src1.Close()
+		caPrivFinal := path.Join(tmepFolderName, "rootca.key")
+		dst1, err := os.Create(caPrivFinal)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		defer dst1.Close()
+		if _, err = io.Copy(dst1, src1); err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		src1.Close()
+		dst1.Close()
 
-		// Destination
-		rootCertPrivateFinal := path.Join(tmepFolderName, "rootca.key")
-		dst, err := os.Create(rootCertPrivateFinal)
-		if err != nil {
-			return err
+		ca := new(RootCA)
+		err = ca.LoadRootCAFromFiles(caCertFinal, caPrivFinal)
+		if _, err = io.Copy(dst1, src1); err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
 		}
-		defer dst.Close()
-		if _, err = io.Copy(dst, src); err != nil {
-			return err
-		}
-		src.Close()
-		dst.Close()
-
-		defer os.Remove(tmepFolderName)
-		err = rr.CreateNewRootCA(tmepFolderName)
+		err = rr.CreateNewSignedIntermediateCA(tmepFolderName, ca.CACert, ca.CAPrivate)
 		if err != nil {
 			return c.String(http.StatusBadRequest, err.Error())
 		}
-		zipfile := path.Join(tmepFolderName, "rootca.zip")
+
+		zipfile := path.Join(tmepFolderName, "intermediate.zip")
 		os.Remove(zipfile)
 		flags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
 		file, err := os.OpenFile(zipfile, flags, 0644)
@@ -192,9 +201,9 @@ func intermediateCreateNewSignedCertificateRoute(e *echo.Echo) {
 			return c.String(http.StatusBadRequest, err.Error())
 		}
 		defer file.Close()
-		certFile := path.Join(tmepFolderName, "rootca.cert")
-		certPriv := path.Join(tmepFolderName, "rootca.key")
-		certPub := path.Join(tmepFolderName, "rootca.pub.key")
+		certFile := path.Join(tmepFolderName, "intermediate.cert")
+		certPriv := path.Join(tmepFolderName, "intermediate.key")
+		certPub := path.Join(tmepFolderName, "intermediate.pub.key")
 		var files = []string{certFile, certPriv, certPub}
 
 		zipw := zip.NewWriter(file)
@@ -209,22 +218,184 @@ func intermediateCreateNewSignedCertificateRoute(e *echo.Echo) {
 		os.Remove(certFile)
 		os.Remove(certPriv)
 		os.Remove(certPub)
-		return c.Attachment(zipfile, "rootca.zip")
+		return c.Attachment(zipfile, "intermediate.zip")
 	})
 }
 
-// func intermediateGetCSRRoute(e *echo.Echo) {
-// 	e.POST("/int/csr", func(c echo.Context) error {
+func intermediateGetCSRRoute(e *echo.Echo) {
+	e.POST("/int/csr", func(c echo.Context) error {
+		r := new(intermediateCertReq)
+		err := json.Unmarshal([]byte(c.FormValue("data")), r)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		if r.CommonName == "" {
+			return c.String(http.StatusBadRequest, "CommonName Cannot be empty")
+		}
+		if r.Organization == "" {
+			return c.String(http.StatusBadRequest, "Organization Cannot be empty")
+		}
+		rr := IntermediateCert{
+			CommonName:            r.CommonName,
+			Organization:          r.Organization,
+			NotAfterNumberOfYears: r.NotAfterNumberOfYears,
+		}
+		MainOutPutFolderName := "Out"
+		tmepFolderName := path.Join(MainOutPutFolderName, "intermediate_csr")
+		os.Remove(tmepFolderName)
+		os.MkdirAll(tmepFolderName, os.ModePerm)
+		defer os.RemoveAll(MainOutPutFolderName)
+		err = rr.CreateIntermediateCASignRequest(tmepFolderName)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		zipfile := path.Join(tmepFolderName, "intermediate_csr.zip")
+		os.Remove(zipfile)
+		flags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
+		file, err := os.OpenFile(zipfile, flags, 0644)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		defer file.Close()
+		certFile := path.Join(tmepFolderName, "intermediate.csr")
+		certPriv := path.Join(tmepFolderName, "intermediate.key")
+		certPub := path.Join(tmepFolderName, "intermediate.pub.key")
+		var files = []string{certFile, certPriv, certPub}
 
-// 		return c.JSONPretty(http.StatusOK, clientList, " ")
-// 	})
-// }
-// func intermediateSignCSRRoute(e *echo.Echo) {
-// 	e.POST("/int/sign", func(c echo.Context) error {
+		zipw := zip.NewWriter(file)
+		defer zipw.Close()
 
-// 		return c.JSONPretty(http.StatusOK, clientList, " ")
-// 	})
-// }
+		for _, filename := range files {
+			if err := appendFiles(filename, zipw); err != nil {
+				return c.String(http.StatusBadRequest, err.Error())
+			}
+		}
+		zipw.Close()
+		os.Remove(certFile)
+		os.Remove(certPriv)
+		os.Remove(certPub)
+		return c.Attachment(zipfile, "intermediate_csr.zip")
+	})
+}
+
+func intermediateSignCSRRoute(e *echo.Echo) {
+	e.POST("/int/sign", func(c echo.Context) error {
+
+		MainOutPutFolderName := "Out"
+		tmepFolderName := path.Join(MainOutPutFolderName, "intermediate")
+		os.Remove(tmepFolderName)
+		os.MkdirAll(tmepFolderName, os.ModePerm)
+		defer os.RemoveAll(MainOutPutFolderName)
+		//Cert File
+		caRec, err := c.FormFile("rootCertFile")
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		src0, err := caRec.Open()
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		defer src0.Close()
+
+		// Destination
+		caCertFinal := path.Join(tmepFolderName, "rootca.cert")
+		dst0, err := os.Create(caCertFinal)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		defer dst0.Close()
+		if _, err = io.Copy(dst0, src0); err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		src0.Close()
+		dst0.Close()
+
+		//Key File
+		caPriv, err := c.FormFile("rootCertPrivateKey")
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		src1, err := caPriv.Open()
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		defer src1.Close()
+		caPrivFinal := path.Join(tmepFolderName, "rootca.key")
+		dst1, err := os.Create(caPrivFinal)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		defer dst1.Close()
+		if _, err = io.Copy(dst1, src1); err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		src1.Close()
+		dst1.Close()
+
+		//csr File
+		csrFile, err := c.FormFile("csrFile")
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		src3, err := csrFile.Open()
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		defer src3.Close()
+		csrFinal := path.Join(tmepFolderName, "intermediate.csr")
+		dst3, err := os.Create(csrFinal)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		defer dst3.Close()
+		if _, err = io.Copy(dst3, src3); err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		src3.Close()
+		dst3.Close()
+
+		ca := new(RootCA)
+		err = ca.LoadRootCAFromFiles(caCertFinal, caPrivFinal)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		numberOfYears, err := strconv.Atoi(c.FormValue("NotAfterNumberOfYears"))
+		if err != nil {
+			numberOfYears = 15
+		}
+		err = SignIntermediateCSR(csrFinal, tmepFolderName, uint8(numberOfYears), ca.CACert, ca.CAPrivate)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+
+		zipfile := path.Join(tmepFolderName, "intermediate.zip")
+		os.Remove(zipfile)
+		flags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
+		file, err := os.OpenFile(zipfile, flags, 0644)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		defer file.Close()
+		certFile := path.Join(tmepFolderName, "intermediate.cert")
+		// certPriv := path.Join(tmepFolderName, "intermediate.key")
+		// certPub := path.Join(tmepFolderName, "intermediate.pub.key")
+		var files = []string{certFile} //, certPriv, certPub}
+
+		zipw := zip.NewWriter(file)
+		defer zipw.Close()
+
+		for _, filename := range files {
+			if err := appendFiles(filename, zipw); err != nil {
+				return c.String(http.StatusBadRequest, err.Error())
+			}
+		}
+		zipw.Close()
+		os.Remove(certFile)
+		// os.Remove(certPriv)
+		// os.Remove(certPub)
+		return c.Attachment(zipfile, "intermediate.zip")
+	})
+}
 
 // //Server
 // func serverCreateNewSignedCertificateRoute(e *echo.Echo) {
