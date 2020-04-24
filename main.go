@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path"
 	"strings"
 
 	"github.com/bodaay/QCert/certtools"
@@ -39,10 +40,17 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	err = ioutil.WriteFile("QCert_Postman_Collection.json", pmMarshalled, os.ModePerm)
+	dir, err := os.Getwd()
 	if err != nil {
 		panic(err)
 	}
+	outputFile := path.Join(dir, "QCert_Postman_Collection.json")
+
+	err = ioutil.WriteFile(outputFile, pmMarshalled, os.ModePerm)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("postman Collection File Has Been Generated and saved: %s\nYou can import this file into postman, to easily interact with the api", outputFile)
 	// address := fmt.Sprintf("127.0.0.1:%s", port)
 	certtools.StartWebCertTool(address)
 
