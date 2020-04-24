@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
@@ -32,6 +33,7 @@ type RootCA struct {
 	Organization          string
 	NotAfterNumberOfYears uint8
 	CACert                *x509.Certificate
+	TLSCACert             *tls.Certificate
 	CAPublic              *rsa.PublicKey
 	CAPrivate             *rsa.PrivateKey
 	caPEMcert             []byte
@@ -149,6 +151,12 @@ func (r *RootCA) CreateNewRootCA(TargetFolder string) ([]string, error) {
 	r.caPEMcert = caPEM.Bytes()
 	r.caPEMpublic = caPublicKeyPEM.Bytes()
 	r.caPEMprivate = caPrivKeyPEM.Bytes()
+	// TLS
+	tlscert, err := tls.X509KeyPair(r.caPEMcert, r.caPEMprivate)
+	if err != nil {
+		return nil, err
+	}
+	r.TLSCACert = &tlscert
 	return ListOfFilesCreated, nil
 }
 
@@ -202,7 +210,12 @@ func (r *RootCA) LoadRootCAFromFiles(certPEMFile string, certPrivateKeyPEMFile s
 		r.Organization = r.CACert.Subject.Organization[0]
 	}
 	// r.Organization = r.CACert.Subject.Organization
-
+	// TLS
+	tlscert, err := tls.X509KeyPair(r.caPEMcert, r.caPEMprivate)
+	if err != nil {
+		return err
+	}
+	r.TLSCACert = &tlscert
 	//TODO: load other certificate paramters into the structure, like organization, notbefore, etc...
 	return nil
 }
@@ -218,6 +231,7 @@ type IntermediateCert struct {
 	Organization          string
 	NotAfterNumberOfYears uint8
 	CACert                *x509.Certificate
+	TLSCACert             *tls.Certificate
 	CAPublic              *rsa.PublicKey
 	CAPrivate             *rsa.PrivateKey
 	caPEMcert             []byte
@@ -338,6 +352,12 @@ func (i *IntermediateCert) CreateNewSignedIntermediateCA(TargetFolder string, ro
 	i.caPEMcert = caPEM.Bytes()
 	i.caPEMpublic = caPublicKeyPEM.Bytes()
 	i.caPEMprivate = caPrivKeyPEM.Bytes()
+	// TLS
+	tlscert, err := tls.X509KeyPair(i.caPEMcert, i.caPEMprivate)
+	if err != nil {
+		return nil, err
+	}
+	i.TLSCACert = &tlscert
 	return ListOfFilesCreated, nil
 }
 
@@ -483,6 +503,12 @@ func (i *IntermediateCert) LoadIntermediateCAFromFiles(certPEMFile string, certP
 		i.Organization = i.CACert.Subject.Organization[0]
 	}
 	// i.Organization = i.CACert.Subject.Organization
+	// TLS
+	tlscert, err := tls.X509KeyPair(i.caPEMcert, i.caPEMprivate)
+	if err != nil {
+		return err
+	}
+	i.TLSCACert = &tlscert
 	return nil
 }
 func SignIntermediateCSR(csrfilePEM string, TargetFolder string, NotAfterNumberOfYears uint8, rootcert *x509.Certificate, rootprivateKey *rsa.PrivateKey) ([]string, error) {
@@ -568,6 +594,7 @@ type ServerCert struct {
 	IPAddresses           []net.IP
 	NotAfterNumberOfYears uint8
 	Cert                  *x509.Certificate
+	TLSCert               *tls.Certificate
 	PrivateKey            *rsa.PrivateKey
 	PublicKey             *rsa.PublicKey
 	PEMcert               []byte
@@ -726,7 +753,12 @@ func (s *ServerCert) CreateAndSignNewServerCert(TargetFolder string, cacert *x50
 	s.PEMcert = certPEM.Bytes()
 	s.PEMpublic = certPublicKeyPEM.Bytes()
 	s.PEMprivate = certPrivKeyPEM.Bytes()
-	// s.serverPEMprivate =
+	// TLS
+	tlscert, err := tls.X509KeyPair(s.PEMcert, s.PEMprivate)
+	if err != nil {
+		return nil, err
+	}
+	s.TLSCert = &tlscert
 	return ListOfFilesCreated, nil
 }
 
@@ -891,7 +923,12 @@ func (s *ServerCert) LoadServerCertFromFiles(certPEMFile string, certPrivateKeyP
 	// s.Locality = s.Cert.Subject.Locality
 	s.IPAddresses = s.Cert.IPAddresses
 	s.DNSNames = s.Cert.DNSNames
-
+	// TLS
+	tlscert, err := tls.X509KeyPair(s.PEMcert, s.PEMprivate)
+	if err != nil {
+		return err
+	}
+	s.TLSCert = &tlscert
 	//TODO: load other certificate paramters into the structure, like organization, notbefore, etc...
 	return nil
 }
@@ -1004,6 +1041,7 @@ type ClientCert struct {
 	// IPAddresses           []net.IP
 	NotAfterNumberOfYears uint8
 	Cert                  *x509.Certificate
+	TLSCert               *tls.Certificate
 	PrivateKey            *rsa.PrivateKey
 	PublicKey             *rsa.PublicKey
 	PEMcert               []byte
@@ -1158,6 +1196,12 @@ func (c *ClientCert) CreateAndSignNewClientCert(TargetFolder string, cacert *x50
 	c.PEMcert = certPEM.Bytes()
 	c.PEMpublic = certPublicKeyPEM.Bytes()
 	c.PEMprivate = certPrivKeyPEM.Bytes()
+	// TLS
+	tlscert, err := tls.X509KeyPair(c.PEMcert, c.PEMprivate)
+	if err != nil {
+		return nil, err
+	}
+	c.TLSCert = &tlscert
 	return ListOfFilesCreated, nil
 }
 
@@ -1316,6 +1360,12 @@ func (c *ClientCert) LoadClientCertFromFiles(certPEMFile string, certPrivateKeyP
 	}
 	// c.IPAddresses = c.Cert.IPAddresses
 	// c.DNSNames = c.Cert.DNSNames
+	// TLS
+	tlscert, err := tls.X509KeyPair(c.PEMcert, c.PEMprivate)
+	if err != nil {
+		return err
+	}
+	c.TLSCert = &tlscert
 	return nil
 }
 
@@ -1427,6 +1477,7 @@ type PeerCert struct {
 	IPAddresses           []net.IP
 	NotAfterNumberOfYears uint8
 	Cert                  *x509.Certificate
+	TLSCert               *tls.Certificate
 	PrivateKey            *rsa.PrivateKey
 	PublicKey             *rsa.PublicKey
 	PEMcert               []byte
@@ -1580,6 +1631,12 @@ func (p *PeerCert) CreateAndSignNewPeerCert(TargetFolder string, cacert *x509.Ce
 	p.PEMcert = certPEM.Bytes()
 	p.PEMpublic = certPublicKeyPEM.Bytes()
 	p.PEMprivate = certPrivKeyPEM.Bytes()
+	// TLS
+	tlscert, err := tls.X509KeyPair(p.PEMcert, p.PEMprivate)
+	if err != nil {
+		return nil, err
+	}
+	p.TLSCert = &tlscert
 	return ListOfFilesCreated, nil
 }
 
@@ -1739,7 +1796,12 @@ func (p *PeerCert) LoadPeerCertFromFiles(certPEMFile string, certPrivateKeyPEMFi
 	}
 	p.IPAddresses = p.Cert.IPAddresses
 	p.DNSNames = p.Cert.DNSNames
-
+	// TLS
+	tlscert, err := tls.X509KeyPair(p.PEMcert, p.PEMprivate)
+	if err != nil {
+		return err
+	}
+	p.TLSCert = &tlscert
 	return nil
 }
 
@@ -1836,86 +1898,70 @@ func SignPeerCSR(csrfilePEM string, TargetFolder string, NotAfterNumberOfYears u
 
 /*
 //Testing
-	os.RemoveAll("certs")
-	os.RemoveAll("certs_csr")
-	rootca := certtools.RootCA{
+func createInitialCertificates() {
+	mainfolder := "certs"
+	rootfolder := path.Join(mainfolder, "root")
+	intermediatefolder := path.Join(mainfolder, "intermediate")
+	serverfolder := path.Join(mainfolder, "server")
+	clientsfolder := path.Join(mainfolder, "clients")
+	root := certtools.RootCA{
 		CommonName:   "Khalefa RootCA",
-		Organization: "Test Company",
+		Organization: "Khalefa Company",
 	}
-	err := rootca.CreateNewRootCA("certs")
+	_, err := root.CreateNewRootCA(rootfolder)
 	if err != nil {
 		panic(err)
 	}
-	//Test Loading
-	rootcaLoaded := certtools.RootCA{}
-	err = rootcaLoaded.LoadRootCAFromFiles("certs/rootca.cert", "certs/rootca.key")
-	if err != nil {
-		panic(err)
-	}
-
-	//Intermediate Direct
-	intermediateCA := certtools.IntermediateCert{
+	intermediate := certtools.IntermediateCert{
 		CommonName:   "Khalefa IntermediateCA",
-		Organization: "Test Company",
+		Organization: "Khalefa Company",
 	}
-	err = intermediateCA.CreateNewSignedIntermediateCA("certs", rootcaLoaded.CACert, rootcaLoaded.CAPrivate)
+	_, err = intermediate.CreateNewSignedIntermediateCA(intermediatefolder, root.CACert, root.CAPrivate)
 	if err != nil {
 		panic(err)
 	}
-	//Test Loading
-	intermediatecaLoaded := certtools.IntermediateCert{}
-	//Test Loading IT
-	err = intermediatecaLoaded.LoadIntermediateCAFromFiles("certs/intermediate.cert", "certs/intermediate.key")
-	if err != nil {
-		panic(err)
-	}
-
-	//Intermediate CSR
-	intermediateCSRCA := certtools.IntermediateCert{
-		CommonName:   "Khalefa IntermediateCA By CSR",
-		Organization: "Test Company",
-	}
-	err = intermediateCSRCA.CreateIntermediateCASignRequest("certs_csr")
-	if err != nil {
-		panic(err)
-	}
-	//Test Signing CSR
-	err = certtools.SignIntermediateCSR("certs_csr/intermediate.csr", "certs_csr", 15, rootcaLoaded.CACert, rootcaLoaded.CAPrivate)
-	if err != nil {
-		panic(err)
-	}
-	//Test out server Certificate Creation
+	// intermediate.LoadIntermediateCAFromFiles("certs/intermediate/intermediate.cert", "certs/intermediate/intermediate.key")
 	server := certtools.ServerCert{
-		CommonName:   "server.khalefa.com",
-		Organization: "Test Company",
+		CommonName:   "ptt.do7a.io",
+		Organization: "Ptt Qatar",
+		Country:      "QA",
+		Province:     "DOHA",
+		DNSNames:     []string{"web.do7a.io"},
+		IPAddresses:  []net.IP{net.IP{127, 0, 0, 1}, net.IPv6loopback},
 	}
-	server.DNSNames = append(server.DNSNames, "server2.khalefa.com")
-	server.DNSNames = append(server.DNSNames, "server3.khalefa.com")
-	server.IPAddresses = append(server.IPAddresses, net.IPv4(127, 0, 0, 1))
-	server.IPAddresses = append(server.IPAddresses, net.IPv6loopback)
-	err = server.CreateAndSignNewServerCert("certs", intermediatecaLoaded.CACert, intermediatecaLoaded.CAPrivate)
+	_, err = server.CreateAndSignNewServerCert(serverfolder, intermediate.CACert, intermediate.CAPrivate)
 	if err != nil {
-		//panic(err)
+		panic(err)
 	}
-
-	//Test out client Certificate Creation
-	client := certtools.ClientCert{
-		CommonName:   "khalefaClient",
-		Organization: "Test Company",
+	//lets create some clients
+	client1 := certtools.ClientCert{
+		CommonName: "Client1",
 	}
-	err = client.CreateAndSignNewClientCert("certs", intermediatecaLoaded.CACert, intermediatecaLoaded.CAPrivate)
+	client2 := certtools.ClientCert{
+		CommonName: "Client2",
+	}
+	client3 := certtools.ClientCert{
+		CommonName: "Client3",
+	}
+	client4 := certtools.ClientCert{
+		CommonName: "Client4",
+	}
+	_, err = client1.CreateAndSignNewClientCert(clientsfolder, intermediate.CACert, intermediate.CAPrivate)
 	if err != nil {
-		//panic(err)
+		panic(err)
 	}
-
-	//Test out peer Certificate Creation
-	peer := certtools.PeerCert{
-		CommonName:   "KhalefaPeer",
-		Organization: "Shit Company",
-	}
-	err = peer.CreateAndSignNewPeerCert("certs", intermediatecaLoaded.CACert, intermediatecaLoaded.CAPrivate)
+	_, err = client2.CreateAndSignNewClientCert(clientsfolder, intermediate.CACert, intermediate.CAPrivate)
 	if err != nil {
-		//panic(err)
+		panic(err)
 	}
+	_, err = client3.CreateAndSignNewClientCert(clientsfolder, intermediate.CACert, intermediate.CAPrivate)
+	if err != nil {
+		panic(err)
+	}
+	_, err = client4.CreateAndSignNewClientCert(clientsfolder, intermediate.CACert, intermediate.CAPrivate)
+	if err != nil {
+		panic(err)
+	}
+}
 
 */
