@@ -39,16 +39,16 @@ type RootCA struct {
 	caPEMprivate          []byte
 }
 
-func (r *RootCA) CreateNewRootCA(TargetFolder string) error {
+func (r *RootCA) CreateNewRootCA(TargetFolder string) ([]string, error) {
 	if _, err := os.Stat(path.Join(TargetFolder, "rootca.cert")); !os.IsNotExist(err) {
 		// path/to/whatever exists
-		return errors.New("Target Rootca cert Exists, delete it yourself")
+		return nil, errors.New("Target Rootca cert Exists, delete it yourself")
 	}
 	if r.Organization == "" {
-		return errors.New("Organization Cannot be empty")
+		return nil, errors.New("Organization Cannot be empty")
 	}
 	if r.CommonName == "" {
-		return errors.New("CommonName Cannot be empty")
+		return nil, errors.New("CommonName Cannot be empty")
 	}
 
 	notebefore := time.Now()
@@ -59,7 +59,7 @@ func (r *RootCA) CreateNewRootCA(TargetFolder string) error {
 
 	err := os.MkdirAll(TargetFolder, os.ModePerm)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	rootcaFileName := path.Join(TargetFolder, "rootca.cert")
 	rootcaPublicFileName := path.Join(TargetFolder, "rootca.pub.key")
@@ -67,8 +67,9 @@ func (r *RootCA) CreateNewRootCA(TargetFolder string) error {
 	// Cryptographically secure.
 	n, err := rand.Int(rand.Reader, big.NewInt(100000))
 	if err != nil {
-		return err
+		return nil, err
 	}
+	var ListOfFilesCreated []string
 	ca := &x509.Certificate{
 		SerialNumber: n,
 		Subject: pkix.Name{
@@ -78,9 +79,10 @@ func (r *RootCA) CreateNewRootCA(TargetFolder string) error {
 			// Province:     []string{r.Province},
 			// Locality:     []string{r.Locality},
 		},
-		NotBefore:             notebefore,
-		NotAfter:              notafter,
-		SignatureAlgorithm:    x509.SHA512WithRSA,
+		NotBefore: notebefore,
+		NotAfter:  notafter,
+		// SignatureAlgorithm:    x509.SHA512WithRSA,
+		SignatureAlgorithm:    x509.SHA256WithRSA,
 		IsCA:                  true,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
 		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
@@ -89,13 +91,13 @@ func (r *RootCA) CreateNewRootCA(TargetFolder string) error {
 	// create our private and public key
 	caPrivKey, err := rsa.GenerateKey(rand.Reader, 4096)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// create the CA
 	caBytes, err := x509.CreateCertificate(rand.Reader, ca, ca, &caPrivKey.PublicKey, caPrivKey)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	r.CACert = ca
 	r.CAPrivate = caPrivKey
@@ -107,40 +109,43 @@ func (r *RootCA) CreateNewRootCA(TargetFolder string) error {
 		Bytes: caBytes,
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ioutil.WriteFile(rootcaFileName, caPEM.Bytes(), os.ModePerm)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	ListOfFilesCreated = append(ListOfFilesCreated, rootcaFileName)
 	caPublicKeyPEM := new(bytes.Buffer)
 	err = pem.Encode(caPublicKeyPEM, &pem.Block{
 		Type:  "RSA PUBLIC KEY",
 		Bytes: x509.MarshalPKCS1PublicKey(&caPrivKey.PublicKey),
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ioutil.WriteFile(rootcaPublicFileName, caPublicKeyPEM.Bytes(), os.ModePerm)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	ListOfFilesCreated = append(ListOfFilesCreated, rootcaPublicFileName)
 	caPrivKeyPEM := new(bytes.Buffer)
 	err = pem.Encode(caPrivKeyPEM, &pem.Block{
 		Type:  "RSA PRIVATE KEY",
 		Bytes: x509.MarshalPKCS1PrivateKey(caPrivKey),
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ioutil.WriteFile(rootcaPrivateKeyFileName, caPrivKeyPEM.Bytes(), os.ModePerm)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	ListOfFilesCreated = append(ListOfFilesCreated, rootcaPrivateKeyFileName)
 	r.caPEMcert = caPEM.Bytes()
 	r.caPEMpublic = caPublicKeyPEM.Bytes()
 	r.caPEMprivate = caPrivKeyPEM.Bytes()
-	return nil
+	return ListOfFilesCreated, nil
 }
 
 func (r *RootCA) LoadRootCAFromFiles(certPEMFile string, certPrivateKeyPEMFile string) error {
@@ -216,18 +221,18 @@ type IntermediateCert struct {
 	caPEMprivate          []byte
 }
 
-func (i *IntermediateCert) CreateNewSignedIntermediateCA(TargetFolder string, rootcert *x509.Certificate, rootprivateKey *rsa.PrivateKey) error {
+func (i *IntermediateCert) CreateNewSignedIntermediateCA(TargetFolder string, rootcert *x509.Certificate, rootprivateKey *rsa.PrivateKey) ([]string, error) {
 	if _, err := os.Stat(path.Join(TargetFolder, "intermediate.cert")); !os.IsNotExist(err) {
 		// path/to/whatever exists
-		return errors.New("Target Intermediate cert Exists, delete it yourself")
+		return nil, errors.New("Target Intermediate cert Exists, delete it yourself")
 	}
 	if i.Organization == "" {
-		return errors.New("Organization Cannot be empty")
+		return nil, errors.New("Organization Cannot be empty")
 	}
 	if i.CommonName == "" {
-		return errors.New("CommonName Cannot be empty")
+		return nil, errors.New("CommonName Cannot be empty")
 	}
-
+	var ListOfFilesCreated []string
 	notebefore := time.Now()
 	if i.NotAfterNumberOfYears == 0 {
 		i.NotAfterNumberOfYears = 15
@@ -236,7 +241,7 @@ func (i *IntermediateCert) CreateNewSignedIntermediateCA(TargetFolder string, ro
 
 	err := os.MkdirAll(TargetFolder, os.ModePerm)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	intermediatecaFileName := path.Join(TargetFolder, "intermediate.cert")
 	intermediatecaPublicFileName := path.Join(TargetFolder, "intermediate.pub.key")
@@ -244,7 +249,7 @@ func (i *IntermediateCert) CreateNewSignedIntermediateCA(TargetFolder string, ro
 	// Cryptographically secure.
 	n, err := rand.Int(rand.Reader, big.NewInt(100000))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ca := &x509.Certificate{
 		SerialNumber: n,
@@ -255,9 +260,10 @@ func (i *IntermediateCert) CreateNewSignedIntermediateCA(TargetFolder string, ro
 			// Province:     []string{r.Province},
 			// Locality:     []string{r.Locality},
 		},
-		NotBefore:             notebefore,
-		NotAfter:              notafter,
-		SignatureAlgorithm:    x509.SHA512WithRSA,
+		NotBefore: notebefore,
+		NotAfter:  notafter,
+		// SignatureAlgorithm:    x509.SHA512WithRSA,
+		SignatureAlgorithm:    x509.SHA256WithRSA,
 		IsCA:                  true,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
 		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
@@ -265,18 +271,18 @@ func (i *IntermediateCert) CreateNewSignedIntermediateCA(TargetFolder string, ro
 	}
 	//Sanity check
 	if ca.Subject.String() == rootcert.Subject.String() {
-		return fmt.Errorf("Intermediate Certificate Cannot have same subject name as Root: %s", ca.Subject.String())
+		return nil, fmt.Errorf("Intermediate Certificate Cannot have same subject name as Root: %s", ca.Subject.String())
 	}
 	// create our private and public key
 	caPrivKey, err := rsa.GenerateKey(rand.Reader, 4096)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// create the CA
 	caBytes, err := x509.CreateCertificate(rand.Reader, ca, rootcert, &caPrivKey.PublicKey, rootprivateKey)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	i.CACert = ca
 	i.CAPrivate = caPrivKey
@@ -288,63 +294,66 @@ func (i *IntermediateCert) CreateNewSignedIntermediateCA(TargetFolder string, ro
 		Bytes: caBytes,
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ioutil.WriteFile(intermediatecaFileName, caPEM.Bytes(), os.ModePerm)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	ListOfFilesCreated = append(ListOfFilesCreated, intermediatecaFileName)
 	caPublicKeyPEM := new(bytes.Buffer)
 	err = pem.Encode(caPublicKeyPEM, &pem.Block{
 		Type:  "RSA PUBLIC KEY",
 		Bytes: x509.MarshalPKCS1PublicKey(&caPrivKey.PublicKey),
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ioutil.WriteFile(intermediatecaPublicFileName, caPublicKeyPEM.Bytes(), os.ModePerm)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	ListOfFilesCreated = append(ListOfFilesCreated, intermediatecaPublicFileName)
 	caPrivKeyPEM := new(bytes.Buffer)
 	err = pem.Encode(caPrivKeyPEM, &pem.Block{
 		Type:  "RSA PRIVATE KEY",
 		Bytes: x509.MarshalPKCS1PrivateKey(caPrivKey),
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ioutil.WriteFile(intermediatecaPrivateKeyFileName, caPrivKeyPEM.Bytes(), os.ModePerm)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	ListOfFilesCreated = append(ListOfFilesCreated, intermediatecaPrivateKeyFileName)
 	i.caPEMcert = caPEM.Bytes()
 	i.caPEMpublic = caPublicKeyPEM.Bytes()
 	i.caPEMprivate = caPrivKeyPEM.Bytes()
-	return nil
+	return ListOfFilesCreated, nil
 }
 
-func (i *IntermediateCert) CreateIntermediateCASignRequest(TargetFolder string) error {
+func (i *IntermediateCert) CreateIntermediateCASignRequest(TargetFolder string) ([]string, error) {
 	if _, err := os.Stat(path.Join(TargetFolder, "intermediate.csr")); !os.IsNotExist(err) {
 		// path/to/whatever exists
-		return errors.New("Target Intermediate CSR Exists, delete it yourself")
+		return nil, errors.New("Target Intermediate CSR Exists, delete it yourself")
 	}
 	if i.Organization == "" {
-		return errors.New("Organization Cannot be empty")
+		return nil, errors.New("Organization Cannot be empty")
 	}
 	if i.CommonName == "" {
-		return errors.New("CommonName Cannot be empty")
+		return nil, errors.New("CommonName Cannot be empty")
 	}
 
 	err := os.MkdirAll(TargetFolder, os.ModePerm)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	intermediatecaCSRFileName := path.Join(TargetFolder, "intermediate.csr")
 	intermediatecaPublicFileName := path.Join(TargetFolder, "intermediate.pub.key")
 	intermediatecaPrivateKeyFileName := path.Join(TargetFolder, "intermediate.key")
 	// Cryptographically secure.
-
+	var ListOfFilesCreated []string
 	csrReq := &x509.CertificateRequest{
 		Subject: pkix.Name{
 			CommonName:   i.CommonName,
@@ -353,19 +362,20 @@ func (i *IntermediateCert) CreateIntermediateCASignRequest(TargetFolder string) 
 			// Province:     []string{r.Province},
 			// Locality:     []string{r.Locality},
 		},
-		SignatureAlgorithm: x509.SHA512WithRSA,
+		// SignatureAlgorithm: x509.SHA512WithRSA,
+		SignatureAlgorithm: x509.SHA256WithRSA,
 	}
 
 	// create our private and public key
 	csrPrivKey, err := rsa.GenerateKey(rand.Reader, 4096)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// create the CA
 	CSRBytes, err := x509.CreateCertificateRequest(rand.Reader, csrReq, csrPrivKey)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	i.CAPrivate = csrPrivKey
 	i.CAPublic = &csrPrivKey.PublicKey
@@ -376,40 +386,43 @@ func (i *IntermediateCert) CreateIntermediateCASignRequest(TargetFolder string) 
 		Bytes: CSRBytes,
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ioutil.WriteFile(intermediatecaCSRFileName, csrPEM.Bytes(), os.ModePerm)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	ListOfFilesCreated = append(ListOfFilesCreated, intermediatecaCSRFileName)
 	csrPublicKeyPEM := new(bytes.Buffer)
 	err = pem.Encode(csrPublicKeyPEM, &pem.Block{
 		Type:  "RSA PUBLIC KEY",
 		Bytes: x509.MarshalPKCS1PublicKey(&csrPrivKey.PublicKey),
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ioutil.WriteFile(intermediatecaPublicFileName, csrPublicKeyPEM.Bytes(), os.ModePerm)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	ListOfFilesCreated = append(ListOfFilesCreated, intermediatecaPublicFileName)
 	csrPrivKeyPEM := new(bytes.Buffer)
 	err = pem.Encode(csrPrivKeyPEM, &pem.Block{
 		Type:  "RSA PRIVATE KEY",
 		Bytes: x509.MarshalPKCS1PrivateKey(csrPrivKey),
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ioutil.WriteFile(intermediatecaPrivateKeyFileName, csrPrivKeyPEM.Bytes(), os.ModePerm)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	ListOfFilesCreated = append(ListOfFilesCreated, intermediatecaPrivateKeyFileName)
 	i.caPEMcert = csrPEM.Bytes()
 	i.caPEMpublic = csrPublicKeyPEM.Bytes()
 	i.caPEMprivate = csrPrivKeyPEM.Bytes()
-	return nil
+	return ListOfFilesCreated, nil
 }
 
 func (i *IntermediateCert) LoadIntermediateCAFromFiles(certPEMFile string, certPrivateKeyPEMFile string) error {
@@ -464,21 +477,21 @@ func (i *IntermediateCert) LoadIntermediateCAFromFiles(certPEMFile string, certP
 	// i.Organization = i.CACert.Subject.Organization
 	return nil
 }
-func SignIntermediateCSR(csrfilePEM string, TargetFolder string, NotAfterNumberOfYears uint8, rootcert *x509.Certificate, rootprivateKey *rsa.PrivateKey) error {
+func SignIntermediateCSR(csrfilePEM string, TargetFolder string, NotAfterNumberOfYears uint8, rootcert *x509.Certificate, rootprivateKey *rsa.PrivateKey) ([]string, error) {
 	if _, err := os.Stat(csrfilePEM); os.IsNotExist(err) {
 		// path/to/whatever does not exist
-		return fmt.Errorf(fmt.Sprintf("cannot find: %s", csrfilePEM))
+		return nil, fmt.Errorf(fmt.Sprintf("cannot find: %s", csrfilePEM))
 
 	}
-
+	var ListOfFilesCreated []string
 	csrbytes, err := ioutil.ReadFile(csrfilePEM)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	block, _ := pem.Decode(csrbytes)
 	csr, err := x509.ParseCertificateRequest(block.Bytes)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	notebefore := time.Now()
 	if NotAfterNumberOfYears == 0 {
@@ -488,7 +501,7 @@ func SignIntermediateCSR(csrfilePEM string, TargetFolder string, NotAfterNumberO
 	// Cryptographically secure.
 	n, err := rand.Int(rand.Reader, big.NewInt(1000000))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ca := &x509.Certificate{
 		SerialNumber:          n,
@@ -504,11 +517,11 @@ func SignIntermediateCSR(csrfilePEM string, TargetFolder string, NotAfterNumberO
 	}
 	//Sanity check
 	if ca.Subject.String() == rootcert.Subject.String() {
-		return fmt.Errorf("Intermediate Certificate Cannot have same subject name as Root: %s", ca.Subject.String())
+		return nil, fmt.Errorf("Intermediate Certificate Cannot have same subject name as Root: %s", ca.Subject.String())
 	}
 	certBytes, err := x509.CreateCertificate(rand.Reader, ca, rootcert, &rootprivateKey.PublicKey, rootprivateKey)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	certPEM := new(bytes.Buffer)
 	err = pem.Encode(certPEM, &pem.Block{
@@ -516,18 +529,19 @@ func SignIntermediateCSR(csrfilePEM string, TargetFolder string, NotAfterNumberO
 		Bytes: certBytes,
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	signedCertFileName := path.Join(TargetFolder, "intermediate.cert")
 	if _, err := os.Stat(signedCertFileName); !os.IsNotExist(err) {
 		// path/to/whatever exists
-		return errors.New("Target Certificate Exists, delete it yourself")
+		return nil, errors.New("Target Certificate Exists, delete it yourself")
 	}
 	ioutil.WriteFile(signedCertFileName, certPEM.Bytes(), os.ModePerm)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return nil
+	ListOfFilesCreated = append(ListOfFilesCreated, signedCertFileName)
+	return ListOfFilesCreated, nil
 }
 
 /*
@@ -553,10 +567,10 @@ type ServerCert struct {
 	PEMprivate            []byte
 }
 
-func (s *ServerCert) CreateAndSignNewServerCert(TargetFolder string, cacert *x509.Certificate, caprivateKey *rsa.PrivateKey) error {
+func (s *ServerCert) CreateAndSignNewServerCert(TargetFolder string, cacert *x509.Certificate, caprivateKey *rsa.PrivateKey) ([]string, error) {
 
 	if s.CommonName == "" {
-		return errors.New("CommonName Cannot be empty")
+		return nil, errors.New("CommonName Cannot be empty")
 	}
 	// if s.Organization == "" {
 	// 	return errors.New("Organization Cannot be empty")
@@ -582,13 +596,14 @@ func (s *ServerCert) CreateAndSignNewServerCert(TargetFolder string, cacert *x50
 	notafter := time.Now().AddDate(int(s.NotAfterNumberOfYears), 0, 0)
 	err := os.MkdirAll(TargetFolder, os.ModePerm)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	// Cryptographically secure.
 	n, err := rand.Int(rand.Reader, big.NewInt(1000000))
 	if err != nil {
-		return err
+		return nil, err
 	}
+	var ListOfFilesCreated []string
 	cert := &x509.Certificate{
 		SerialNumber: n,
 		Subject: pkix.Name{
@@ -598,11 +613,12 @@ func (s *ServerCert) CreateAndSignNewServerCert(TargetFolder string, cacert *x50
 			Province:     []string{s.Province},
 			Locality:     []string{s.Locality},
 		},
-		DNSNames:           s.DNSNames,
-		IPAddresses:        s.IPAddresses,
-		NotBefore:          notebefore,
-		NotAfter:           notafter,
-		SignatureAlgorithm: x509.SHA512WithRSA,
+		DNSNames:    s.DNSNames,
+		IPAddresses: s.IPAddresses,
+		NotBefore:   notebefore,
+		NotAfter:    notafter,
+		// SignatureAlgorithm: x509.SHA512WithRSA,
+		SignatureAlgorithm: x509.SHA256WithRSA,
 		// SubjectKeyId: []byte{1, 2, 3, 4, 6},
 		// ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
@@ -610,35 +626,36 @@ func (s *ServerCert) CreateAndSignNewServerCert(TargetFolder string, cacert *x50
 	}
 	certPrivKey, err := rsa.GenerateKey(rand.Reader, 4096)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	certBytes, err := x509.CreateCertificate(rand.Reader, cert, cacert, &certPrivKey.PublicKey, caprivateKey)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	// serverFileName := path.Join(TargetFolder, s.CommonName+".cert")
 	// serverPublicFileName := path.Join(TargetFolder, s.CommonName+".pub.key")
 	// serverPrivateKeyFileName := path.Join(TargetFolder, s.CommonName+".key")
-	certFileName := path.Join(TargetFolder, strings.Trim(s.CommonName, " \n \r")+".cert")
+	certFileName := path.Join(TargetFolder, strings.Trim(s.CommonName, "\n\r .?!@#$%^")+".cert")
 	if _, err := os.Stat(certFileName); !os.IsNotExist(err) {
 		// path/to/whatever exists
-		return errors.New("Target Certificate Exists, delete it yourself")
+		return nil, errors.New("Target Certificate Exists, delete it yourself")
 	}
-	certPublicFileName := path.Join(TargetFolder, strings.Trim(s.CommonName, " \n \r")+".pub.key")
-	certPrivateKeyFileName := path.Join(TargetFolder, strings.Trim(s.CommonName, " \n \r")+".key")
+	certPublicFileName := path.Join(TargetFolder, strings.Trim(s.CommonName, "\n\r .?!@#$%^")+".pub.key")
+	certPrivateKeyFileName := path.Join(TargetFolder, strings.Trim(s.CommonName, "\n\r .?!@#$%^")+".key")
 	certPEM := new(bytes.Buffer)
 	err = pem.Encode(certPEM, &pem.Block{
 		Type:  "CERTIFICATE",
 		Bytes: certBytes,
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ioutil.WriteFile(certFileName, certPEM.Bytes(), os.ModePerm)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	ListOfFilesCreated = append(ListOfFilesCreated, certFileName)
 	//creating bundled version in case ca is not root ca
 	//we can check if supplied ca is root or intermediate, if its intermediate, we have to create bundled version of the certificate
 	CreateBundledVersion := true
@@ -646,7 +663,7 @@ func (s *ServerCert) CreateAndSignNewServerCert(TargetFolder string, cacert *x50
 		CreateBundledVersion = false
 	}
 	if CreateBundledVersion {
-		certBundleFileName := path.Join(TargetFolder, strings.Trim(s.CommonName, " \n \r")+".bundle.cert")
+		certBundleFileName := path.Join(TargetFolder, strings.Trim(s.CommonName, "\n\r .?!@#$%^")+".bundle.cert")
 		caBytes := cacert.Raw
 		caPEM := new(bytes.Buffer)
 		err = pem.Encode(caPEM, &pem.Block{
@@ -654,15 +671,16 @@ func (s *ServerCert) CreateAndSignNewServerCert(TargetFolder string, cacert *x50
 			Bytes: caBytes,
 		})
 		if err != nil {
-			return err
+			return nil, err
 		}
 		byteBundle := make([]byte, len(certPEM.Bytes())+len(caPEM.Bytes()))
 		copy(byteBundle, certPEM.Bytes()[:])
 		copy(byteBundle[len(certPEM.Bytes()):], caPEM.Bytes()[:])
 		ioutil.WriteFile(certBundleFileName, byteBundle, os.ModePerm)
 		if err != nil {
-			return err
+			return nil, err
 		}
+		ListOfFilesCreated = append(ListOfFilesCreated, certBundleFileName)
 	}
 	certPublicKeyPEM := new(bytes.Buffer)
 	err = pem.Encode(certPublicKeyPEM, &pem.Block{
@@ -670,26 +688,26 @@ func (s *ServerCert) CreateAndSignNewServerCert(TargetFolder string, cacert *x50
 		Bytes: x509.MarshalPKCS1PublicKey(&certPrivKey.PublicKey),
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ioutil.WriteFile(certPublicFileName, certPublicKeyPEM.Bytes(), os.ModePerm)
 	if err != nil {
-		return err
+		return nil, err
 	}
-
+	ListOfFilesCreated = append(ListOfFilesCreated, certPublicFileName)
 	certPrivKeyPEM := new(bytes.Buffer)
 	err = pem.Encode(certPrivKeyPEM, &pem.Block{
 		Type:  "RSA PRIVATE KEY",
 		Bytes: x509.MarshalPKCS1PrivateKey(certPrivKey),
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ioutil.WriteFile(certPrivateKeyFileName, certPrivKeyPEM.Bytes(), os.ModePerm)
 	if err != nil {
-		return err
+		return nil, err
 	}
-
+	ListOfFilesCreated = append(ListOfFilesCreated, certPrivateKeyFileName)
 	s.Cert = cert
 	s.PrivateKey = certPrivKey
 	s.PublicKey = &certPrivKey.PublicKey
@@ -697,30 +715,30 @@ func (s *ServerCert) CreateAndSignNewServerCert(TargetFolder string, cacert *x50
 	s.PEMpublic = certPublicKeyPEM.Bytes()
 	s.PEMprivate = certPrivKeyPEM.Bytes()
 	// s.serverPEMprivate =
-	return nil
+	return ListOfFilesCreated, nil
 }
 
-func (s *ServerCert) CreateServerSignRequest(TargetFolder string) error {
+func (s *ServerCert) CreateServerSignRequest(TargetFolder string) ([]string, error) {
 
 	if s.CommonName == "" {
-		return errors.New("CommonName Cannot be empty")
+		return nil, errors.New("CommonName Cannot be empty")
 	}
 	if s.Organization == "" {
-		return errors.New("Organization Cannot be empty")
+		return nil, errors.New("Organization Cannot be empty")
 	}
 
 	err := os.MkdirAll(TargetFolder, os.ModePerm)
 	if err != nil {
-		return err
+		return nil, err
 	}
-
-	CSRFileName := path.Join(TargetFolder, strings.Trim(s.CommonName, " \n \r")+".csr")
+	var ListOfFilesCreated []string
+	CSRFileName := path.Join(TargetFolder, strings.Trim(s.CommonName, "\n\r .?!@#$%^")+".csr")
 	if _, err := os.Stat(CSRFileName); !os.IsNotExist(err) {
 		// path/to/whatever exists
-		return errors.New("Target Certificate Request Exists, delete it yourself")
+		return nil, errors.New("Target Certificate Request Exists, delete it yourself")
 	}
-	csrPublicFileName := path.Join(TargetFolder, strings.Trim(s.CommonName, " \n \r")+".pub.key")
-	csrPrivateKeyFileName := path.Join(TargetFolder, strings.Trim(s.CommonName, " \n \r")+".key")
+	csrPublicFileName := path.Join(TargetFolder, strings.Trim(s.CommonName, "\n\r .?!@#$%^")+".pub.key")
+	csrPrivateKeyFileName := path.Join(TargetFolder, strings.Trim(s.CommonName, "\n\r .?!@#$%^")+".key")
 	// Cryptographically secure.
 
 	csrReq := &x509.CertificateRequest{
@@ -731,7 +749,8 @@ func (s *ServerCert) CreateServerSignRequest(TargetFolder string) error {
 			Province:     []string{s.Province},
 			Locality:     []string{s.Locality},
 		},
-		SignatureAlgorithm: x509.SHA512WithRSA,
+		// SignatureAlgorithm: x509.SHA512WithRSA,
+		SignatureAlgorithm: x509.SHA256WithRSA,
 		DNSNames:           s.DNSNames,
 		IPAddresses:        s.IPAddresses,
 	}
@@ -739,13 +758,13 @@ func (s *ServerCert) CreateServerSignRequest(TargetFolder string) error {
 	// create our private and public key
 	csrPrivKey, err := rsa.GenerateKey(rand.Reader, 4096)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// create the CA
 	CSRBytes, err := x509.CreateCertificateRequest(rand.Reader, csrReq, csrPrivKey)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	s.PrivateKey = csrPrivKey
 	s.PublicKey = &csrPrivKey.PublicKey
@@ -756,40 +775,44 @@ func (s *ServerCert) CreateServerSignRequest(TargetFolder string) error {
 		Bytes: CSRBytes,
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ioutil.WriteFile(CSRFileName, csrPEM.Bytes(), os.ModePerm)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	ListOfFilesCreated = append(ListOfFilesCreated, CSRFileName)
+
 	csrPublicKeyPEM := new(bytes.Buffer)
 	err = pem.Encode(csrPublicKeyPEM, &pem.Block{
 		Type:  "RSA PUBLIC KEY",
 		Bytes: x509.MarshalPKCS1PublicKey(&csrPrivKey.PublicKey),
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ioutil.WriteFile(csrPublicFileName, csrPublicKeyPEM.Bytes(), os.ModePerm)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	ListOfFilesCreated = append(ListOfFilesCreated, csrPublicFileName)
 	csrPrivKeyPEM := new(bytes.Buffer)
 	err = pem.Encode(csrPrivKeyPEM, &pem.Block{
 		Type:  "RSA PRIVATE KEY",
 		Bytes: x509.MarshalPKCS1PrivateKey(csrPrivKey),
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ioutil.WriteFile(csrPrivateKeyFileName, csrPrivKeyPEM.Bytes(), os.ModePerm)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	ListOfFilesCreated = append(ListOfFilesCreated, csrPrivateKeyFileName)
 	s.PEMcert = csrPEM.Bytes()
 	s.PEMpublic = csrPublicKeyPEM.Bytes()
 	s.PEMprivate = csrPrivKeyPEM.Bytes()
-	return nil
+	return ListOfFilesCreated, err
 }
 
 func (s *ServerCert) LoadServerCertFromFiles(certPEMFile string, certPrivateKeyPEMFile string) error {
@@ -861,21 +884,21 @@ func (s *ServerCert) LoadServerCertFromFiles(certPEMFile string, certPrivateKeyP
 	return nil
 }
 
-func SignServerCSR(csrfilePEM string, TargetFolder string, NotAfterNumberOfYears uint8, cacert *x509.Certificate, caprivateKey *rsa.PrivateKey) error {
+func SignServerCSR(csrfilePEM string, TargetFolder string, NotAfterNumberOfYears uint8, cacert *x509.Certificate, caprivateKey *rsa.PrivateKey) ([]string, error) {
 	if _, err := os.Stat(csrfilePEM); os.IsNotExist(err) {
 		// path/to/whatever does not exist
-		return fmt.Errorf(fmt.Sprintf("cannot find: %s", csrfilePEM))
+		return nil, fmt.Errorf(fmt.Sprintf("cannot find: %s", csrfilePEM))
 
 	}
-
+	var ListOfFilesCreated []string
 	csrbytes, err := ioutil.ReadFile(csrfilePEM)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	block, _ := pem.Decode(csrbytes)
 	csr, err := x509.ParseCertificateRequest(block.Bytes)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	notebefore := time.Now()
 	if NotAfterNumberOfYears == 0 {
@@ -885,7 +908,7 @@ func SignServerCSR(csrfilePEM string, TargetFolder string, NotAfterNumberOfYears
 	// Cryptographically secure.
 	n, err := rand.Int(rand.Reader, big.NewInt(1000000))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	cert := &x509.Certificate{
 		SerialNumber:       n,
@@ -903,7 +926,7 @@ func SignServerCSR(csrfilePEM string, TargetFolder string, NotAfterNumberOfYears
 	}
 	certBytes, err := x509.CreateCertificate(rand.Reader, cert, cacert, &caprivateKey.PublicKey, caprivateKey)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	certPEM := new(bytes.Buffer)
 	err = pem.Encode(certPEM, &pem.Block{
@@ -911,17 +934,18 @@ func SignServerCSR(csrfilePEM string, TargetFolder string, NotAfterNumberOfYears
 		Bytes: certBytes,
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
-	signedCertFileName := path.Join(strings.Trim(cert.Subject.CommonName, " \n \r") + ".cert")
+	signedCertFileName := path.Join(TargetFolder, strings.Trim(cert.Subject.CommonName, "\n\r .?!@#$%^")+".cert")
 	if _, err := os.Stat(signedCertFileName); !os.IsNotExist(err) {
 		// path/to/whatever exists
-		return errors.New("Target Certificate Exists, delete it yourself")
+		return nil, errors.New("Target Certificate Exists, delete it yourself")
 	}
 	ioutil.WriteFile(signedCertFileName, certPEM.Bytes(), os.ModePerm)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	ListOfFilesCreated = append(ListOfFilesCreated, signedCertFileName)
 	//creating bundled version in case ca is not root ca
 	//we can check if supplied ca is root or intermediate, if its intermediate, we have to create bundled version of the certificate
 	CreateBundledVersion := true
@@ -929,7 +953,7 @@ func SignServerCSR(csrfilePEM string, TargetFolder string, NotAfterNumberOfYears
 		CreateBundledVersion = false
 	}
 	if CreateBundledVersion {
-		certBundleFileName := path.Join(TargetFolder, strings.Trim(cert.Subject.CommonName, " \n \r")+".bundle.cert")
+		certBundleFileName := path.Join(TargetFolder, strings.Trim(cert.Subject.CommonName, "\n\r .?!@#$%^")+".bundle.cert")
 		caBytes := cacert.Raw
 		caPEM := new(bytes.Buffer)
 		err = pem.Encode(caPEM, &pem.Block{
@@ -937,17 +961,19 @@ func SignServerCSR(csrfilePEM string, TargetFolder string, NotAfterNumberOfYears
 			Bytes: caBytes,
 		})
 		if err != nil {
-			return err
+			return nil, err
 		}
 		byteBundle := make([]byte, len(certPEM.Bytes())+len(caPEM.Bytes()))
 		copy(byteBundle, certPEM.Bytes()[:])
 		copy(byteBundle[len(certPEM.Bytes()):], caPEM.Bytes()[:])
 		ioutil.WriteFile(certBundleFileName, byteBundle, os.ModePerm)
 		if err != nil {
-			return err
+			return nil, err
 		}
+		ListOfFilesCreated = append(ListOfFilesCreated, certBundleFileName)
 	}
-	return nil
+
+	return ListOfFilesCreated, nil
 }
 
 /*
@@ -973,13 +999,13 @@ type ClientCert struct {
 	PEMprivate            []byte
 }
 
-func (c *ClientCert) CreateAndSignNewClientCert(TargetFolder string, cacert *x509.Certificate, caprivateKey *rsa.PrivateKey) error {
+func (c *ClientCert) CreateAndSignNewClientCert(TargetFolder string, cacert *x509.Certificate, caprivateKey *rsa.PrivateKey) ([]string, error) {
 	if _, err := os.Stat(path.Join(TargetFolder, c.CommonName+".cert")); !os.IsNotExist(err) {
 		// path/to/whatever exists
-		return errors.New("Target Certificate Exists, delete it yourself")
+		return nil, errors.New("Target Certificate Exists, delete it yourself")
 	}
 	if c.CommonName == "" {
-		return errors.New("CommonName Cannot be empty")
+		return nil, errors.New("CommonName Cannot be empty")
 	}
 	// if s.Organization == "" {
 	// 	return errors.New("Organization Cannot be empty")
@@ -1005,13 +1031,14 @@ func (c *ClientCert) CreateAndSignNewClientCert(TargetFolder string, cacert *x50
 	notafter := time.Now().AddDate(int(c.NotAfterNumberOfYears), 0, 0)
 	err := os.MkdirAll(TargetFolder, os.ModePerm)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	// Cryptographically secure.
 	n, err := rand.Int(rand.Reader, big.NewInt(1000000))
 	if err != nil {
-		return err
+		return nil, err
 	}
+	var ListOfFilesCreated []string
 	cert := &x509.Certificate{
 		SerialNumber: n,
 		Subject: pkix.Name{
@@ -1023,9 +1050,10 @@ func (c *ClientCert) CreateAndSignNewClientCert(TargetFolder string, cacert *x50
 		},
 		// DNSNames:           c.DNSNames,
 		// IPAddresses:        c.IPAddresses,
-		NotBefore:          notebefore,
-		NotAfter:           notafter,
-		SignatureAlgorithm: x509.SHA512WithRSA,
+		NotBefore: notebefore,
+		NotAfter:  notafter,
+		// SignatureAlgorithm: x509.SHA512WithRSA,
+		SignatureAlgorithm: x509.SHA256WithRSA,
 		// SubjectKeyId: []byte{1, 2, 3, 4, 6},
 		// ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
@@ -1033,28 +1061,29 @@ func (c *ClientCert) CreateAndSignNewClientCert(TargetFolder string, cacert *x50
 	}
 	certPrivKey, err := rsa.GenerateKey(rand.Reader, 4096)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	certBytes, err := x509.CreateCertificate(rand.Reader, cert, cacert, &certPrivKey.PublicKey, caprivateKey)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	certFileName := path.Join(TargetFolder, strings.Trim(c.CommonName, " \n \r")+".cert")
-	certPublicFileName := path.Join(TargetFolder, strings.Trim(c.CommonName, " \n \r")+".pub.key")
-	certPrivateKeyFileName := path.Join(TargetFolder, strings.Trim(c.CommonName, " \n \r")+".key")
+	certFileName := path.Join(TargetFolder, strings.Trim(c.CommonName, "\n\r .?!@#$%^")+".cert")
+	certPublicFileName := path.Join(TargetFolder, strings.Trim(c.CommonName, "\n\r .?!@#$%^")+".pub.key")
+	certPrivateKeyFileName := path.Join(TargetFolder, strings.Trim(c.CommonName, "\n\r .?!@#$%^")+".key")
 	certPEM := new(bytes.Buffer)
 	err = pem.Encode(certPEM, &pem.Block{
 		Type:  "CERTIFICATE",
 		Bytes: certBytes,
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ioutil.WriteFile(certFileName, certPEM.Bytes(), os.ModePerm)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	ListOfFilesCreated = append(ListOfFilesCreated, certFileName)
 	//creating bundled version in case ca is not root ca
 	//we can check if supplied ca is root or intermediate, if its intermediate, we have to create bundled version of the certificate
 	CreateBundledVersion := true
@@ -1062,7 +1091,7 @@ func (c *ClientCert) CreateAndSignNewClientCert(TargetFolder string, cacert *x50
 		CreateBundledVersion = false
 	}
 	if CreateBundledVersion {
-		certBundleFileName := path.Join(TargetFolder, strings.Trim(cert.Subject.CommonName, " \n \r")+".bundle.cert")
+		certBundleFileName := path.Join(TargetFolder, strings.Trim(cert.Subject.CommonName, "\n\r .?!@#$%^")+".bundle.cert")
 		caBytes := cacert.Raw
 		caPEM := new(bytes.Buffer)
 		err = pem.Encode(caPEM, &pem.Block{
@@ -1070,15 +1099,16 @@ func (c *ClientCert) CreateAndSignNewClientCert(TargetFolder string, cacert *x50
 			Bytes: caBytes,
 		})
 		if err != nil {
-			return err
+			return nil, err
 		}
 		byteBundle := make([]byte, len(certPEM.Bytes())+len(caPEM.Bytes()))
 		copy(byteBundle, certPEM.Bytes()[:])
 		copy(byteBundle[len(certPEM.Bytes()):], caPEM.Bytes()[:])
 		ioutil.WriteFile(certBundleFileName, byteBundle, os.ModePerm)
 		if err != nil {
-			return err
+			return nil, err
 		}
+		ListOfFilesCreated = append(ListOfFilesCreated, certBundleFileName)
 	}
 	certPublicKeyPEM := new(bytes.Buffer)
 	err = pem.Encode(certPublicKeyPEM, &pem.Block{
@@ -1086,58 +1116,58 @@ func (c *ClientCert) CreateAndSignNewClientCert(TargetFolder string, cacert *x50
 		Bytes: x509.MarshalPKCS1PublicKey(&certPrivKey.PublicKey),
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ioutil.WriteFile(certPublicFileName, certPublicKeyPEM.Bytes(), os.ModePerm)
 	if err != nil {
-		return err
+		return nil, err
 	}
-
+	ListOfFilesCreated = append(ListOfFilesCreated, certPublicFileName)
 	certPrivKeyPEM := new(bytes.Buffer)
 	err = pem.Encode(certPrivKeyPEM, &pem.Block{
 		Type:  "RSA PRIVATE KEY",
 		Bytes: x509.MarshalPKCS1PrivateKey(certPrivKey),
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ioutil.WriteFile(certPrivateKeyFileName, certPrivKeyPEM.Bytes(), os.ModePerm)
 	if err != nil {
-		return err
+		return nil, err
 	}
-
+	ListOfFilesCreated = append(ListOfFilesCreated, certPrivateKeyFileName)
 	c.Cert = cert
 	c.PrivateKey = certPrivKey
 	c.PublicKey = &certPrivKey.PublicKey
 	c.PEMcert = certPEM.Bytes()
 	c.PEMpublic = certPublicKeyPEM.Bytes()
 	c.PEMprivate = certPrivKeyPEM.Bytes()
-	return nil
+	return ListOfFilesCreated, nil
 }
 
-func (c *ClientCert) CreateClientSignRequest(TargetFolder string) error {
+func (c *ClientCert) CreateClientSignRequest(TargetFolder string) ([]string, error) {
 
 	if c.CommonName == "" {
-		return errors.New("CommonName Cannot be empty")
+		return nil, errors.New("CommonName Cannot be empty")
 	}
 	if c.Organization == "" {
-		return errors.New("Organization Cannot be empty")
+		return nil, errors.New("Organization Cannot be empty")
 	}
 
 	err := os.MkdirAll(TargetFolder, os.ModePerm)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	CSRFileName := path.Join(TargetFolder, strings.Trim(c.CommonName, " \n \r")+".csr")
+	CSRFileName := path.Join(TargetFolder, strings.Trim(c.CommonName, "\n\r .?!@#$%^")+".csr")
 	if _, err := os.Stat(CSRFileName); !os.IsNotExist(err) {
 		// path/to/whatever exists
-		return errors.New("Target Certificate Request Exists, delete it yourself")
+		return nil, errors.New("Target Certificate Request Exists, delete it yourself")
 	}
-	csrPublicFileName := path.Join(TargetFolder, strings.Trim(c.CommonName, " \n \r")+".pub.key")
-	csrPrivateKeyFileName := path.Join(TargetFolder, strings.Trim(c.CommonName, " \n \r")+".key")
+	csrPublicFileName := path.Join(TargetFolder, strings.Trim(c.CommonName, "\n\r .?!@#$%^")+".pub.key")
+	csrPrivateKeyFileName := path.Join(TargetFolder, strings.Trim(c.CommonName, "\n\r .?!@#$%^")+".key")
 	// Cryptographically secure.
-
+	var ListOfFilesCreated []string
 	csrReq := &x509.CertificateRequest{
 		Subject: pkix.Name{
 			CommonName:   c.CommonName,
@@ -1146,7 +1176,8 @@ func (c *ClientCert) CreateClientSignRequest(TargetFolder string) error {
 			Province:     []string{c.Province},
 			Locality:     []string{c.Locality},
 		},
-		SignatureAlgorithm: x509.SHA512WithRSA,
+		// SignatureAlgorithm: x509.SHA512WithRSA,
+		SignatureAlgorithm: x509.SHA256WithRSA,
 		// DNSNames:           s.DNSNames,
 		// IPAddresses:        s.IPAddresses,
 	}
@@ -1154,13 +1185,13 @@ func (c *ClientCert) CreateClientSignRequest(TargetFolder string) error {
 	// create our private and public key
 	csrPrivKey, err := rsa.GenerateKey(rand.Reader, 4096)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// create the CA
 	CSRBytes, err := x509.CreateCertificateRequest(rand.Reader, csrReq, csrPrivKey)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	c.PrivateKey = csrPrivKey
 	c.PublicKey = &csrPrivKey.PublicKey
@@ -1171,40 +1202,43 @@ func (c *ClientCert) CreateClientSignRequest(TargetFolder string) error {
 		Bytes: CSRBytes,
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ioutil.WriteFile(CSRFileName, csrPEM.Bytes(), os.ModePerm)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	ListOfFilesCreated = append(ListOfFilesCreated, CSRFileName)
 	csrPublicKeyPEM := new(bytes.Buffer)
 	err = pem.Encode(csrPublicKeyPEM, &pem.Block{
 		Type:  "RSA PUBLIC KEY",
 		Bytes: x509.MarshalPKCS1PublicKey(&csrPrivKey.PublicKey),
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ioutil.WriteFile(csrPublicFileName, csrPublicKeyPEM.Bytes(), os.ModePerm)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	ListOfFilesCreated = append(ListOfFilesCreated, csrPublicFileName)
 	csrPrivKeyPEM := new(bytes.Buffer)
 	err = pem.Encode(csrPrivKeyPEM, &pem.Block{
 		Type:  "RSA PRIVATE KEY",
 		Bytes: x509.MarshalPKCS1PrivateKey(csrPrivKey),
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ioutil.WriteFile(csrPrivateKeyFileName, csrPrivKeyPEM.Bytes(), os.ModePerm)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	ListOfFilesCreated = append(ListOfFilesCreated, csrPrivateKeyFileName)
 	c.PEMcert = csrPEM.Bytes()
 	c.PEMpublic = csrPublicKeyPEM.Bytes()
 	c.PEMprivate = csrPrivKeyPEM.Bytes()
-	return nil
+	return ListOfFilesCreated, nil
 }
 func (c *ClientCert) LoadClientCertFromFiles(certPEMFile string, certPrivateKeyPEMFile string) error {
 	if _, err := os.Stat(certPEMFile); os.IsNotExist(err) {
@@ -1269,21 +1303,21 @@ func (c *ClientCert) LoadClientCertFromFiles(certPEMFile string, certPrivateKeyP
 	return nil
 }
 
-func SignClientCSR(csrfilePEM string, TargetFolder string, NotAfterNumberOfYears uint8, cacert *x509.Certificate, caprivateKey *rsa.PrivateKey) error {
+func SignClientCSR(csrfilePEM string, TargetFolder string, NotAfterNumberOfYears uint8, cacert *x509.Certificate, caprivateKey *rsa.PrivateKey) ([]string, error) {
 	if _, err := os.Stat(csrfilePEM); os.IsNotExist(err) {
 		// path/to/whatever does not exist
-		return fmt.Errorf(fmt.Sprintf("cannot find: %s", csrfilePEM))
+		return nil, fmt.Errorf(fmt.Sprintf("cannot find: %s", csrfilePEM))
 
 	}
 
 	csrbytes, err := ioutil.ReadFile(csrfilePEM)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	block, _ := pem.Decode(csrbytes)
 	csr, err := x509.ParseCertificateRequest(block.Bytes)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	notebefore := time.Now()
 	if NotAfterNumberOfYears == 0 {
@@ -1293,8 +1327,9 @@ func SignClientCSR(csrfilePEM string, TargetFolder string, NotAfterNumberOfYears
 	// Cryptographically secure.
 	n, err := rand.Int(rand.Reader, big.NewInt(1000000))
 	if err != nil {
-		return err
+		return nil, err
 	}
+	var ListOfFilesCreated []string
 	cert := &x509.Certificate{
 		SerialNumber: n,
 		Subject:      csr.Subject,
@@ -1311,7 +1346,7 @@ func SignClientCSR(csrfilePEM string, TargetFolder string, NotAfterNumberOfYears
 	}
 	certBytes, err := x509.CreateCertificate(rand.Reader, cert, cacert, &caprivateKey.PublicKey, caprivateKey)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	certPEM := new(bytes.Buffer)
 	err = pem.Encode(certPEM, &pem.Block{
@@ -1319,17 +1354,18 @@ func SignClientCSR(csrfilePEM string, TargetFolder string, NotAfterNumberOfYears
 		Bytes: certBytes,
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
-	signedCertFileName := path.Join(strings.Trim(cert.Subject.CommonName, " \n \r") + ".cert")
+	signedCertFileName := path.Join(TargetFolder, strings.Trim(cert.Subject.CommonName, "\n\r .?!@#$%^")+".cert")
 	if _, err := os.Stat(signedCertFileName); !os.IsNotExist(err) {
 		// path/to/whatever exists
-		return errors.New("Target Certificate Exists, delete it yourself")
+		return nil, errors.New("Target Certificate Exists, delete it yourself")
 	}
 	ioutil.WriteFile(signedCertFileName, certPEM.Bytes(), os.ModePerm)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	ListOfFilesCreated = append(ListOfFilesCreated, signedCertFileName)
 	//creating bundled version in case ca is not root ca
 	//we can check if supplied ca is root or intermediate, if its intermediate, we have to create bundled version of the certificate
 	CreateBundledVersion := true
@@ -1337,7 +1373,7 @@ func SignClientCSR(csrfilePEM string, TargetFolder string, NotAfterNumberOfYears
 		CreateBundledVersion = false
 	}
 	if CreateBundledVersion {
-		certBundleFileName := path.Join(TargetFolder, strings.Trim(cert.Subject.CommonName, " \n \r")+".bundle.cert")
+		certBundleFileName := path.Join(TargetFolder, strings.Trim(cert.Subject.CommonName, "\n\r .?!@#$%^")+".bundle.cert")
 		caBytes := cacert.Raw
 		caPEM := new(bytes.Buffer)
 		err = pem.Encode(caPEM, &pem.Block{
@@ -1345,17 +1381,18 @@ func SignClientCSR(csrfilePEM string, TargetFolder string, NotAfterNumberOfYears
 			Bytes: caBytes,
 		})
 		if err != nil {
-			return err
+			return nil, err
 		}
 		byteBundle := make([]byte, len(certPEM.Bytes())+len(caPEM.Bytes()))
 		copy(byteBundle, certPEM.Bytes()[:])
 		copy(byteBundle[len(certPEM.Bytes()):], caPEM.Bytes()[:])
 		ioutil.WriteFile(certBundleFileName, byteBundle, os.ModePerm)
 		if err != nil {
-			return err
+			return nil, err
 		}
+		ListOfFilesCreated = append(ListOfFilesCreated, certBundleFileName)
 	}
-	return nil
+	return ListOfFilesCreated, nil
 }
 
 /*
@@ -1381,13 +1418,13 @@ type PeerCert struct {
 	PEMprivate            []byte
 }
 
-func (p *PeerCert) CreateAndSignNewPeerCert(TargetFolder string, cacert *x509.Certificate, caprivateKey *rsa.PrivateKey) error {
+func (p *PeerCert) CreateAndSignNewPeerCert(TargetFolder string, cacert *x509.Certificate, caprivateKey *rsa.PrivateKey) ([]string, error) {
 	if _, err := os.Stat(path.Join(TargetFolder, p.CommonName+".cert")); !os.IsNotExist(err) {
 		// path/to/whatever exists
-		return errors.New("Target Certificate Exists, delete it yourself")
+		return nil, errors.New("Target Certificate Exists, delete it yourself")
 	}
 	if p.CommonName == "" {
-		return errors.New("CommonName Cannot be empty")
+		return nil, errors.New("CommonName Cannot be empty")
 	}
 	// if s.Organization == "" {
 	// 	return errors.New("Organization Cannot be empty")
@@ -1413,13 +1450,14 @@ func (p *PeerCert) CreateAndSignNewPeerCert(TargetFolder string, cacert *x509.Ce
 	notafter := time.Now().AddDate(int(p.NotAfterNumberOfYears), 0, 0)
 	err := os.MkdirAll(TargetFolder, os.ModePerm)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	// Cryptographically secure.
 	n, err := rand.Int(rand.Reader, big.NewInt(1000000))
 	if err != nil {
-		return err
+		return nil, err
 	}
+	var ListOfFilesCreated []string
 	cert := &x509.Certificate{
 		SerialNumber: n,
 		Subject: pkix.Name{
@@ -1429,39 +1467,41 @@ func (p *PeerCert) CreateAndSignNewPeerCert(TargetFolder string, cacert *x509.Ce
 			Province:     []string{p.Province},
 			Locality:     []string{p.Locality},
 		},
-		DNSNames:           p.DNSNames,
-		IPAddresses:        p.IPAddresses,
-		NotBefore:          notebefore,
-		NotAfter:           notafter,
-		SignatureAlgorithm: x509.SHA512WithRSA,
+		DNSNames:    p.DNSNames,
+		IPAddresses: p.IPAddresses,
+		NotBefore:   notebefore,
+		NotAfter:    notafter,
+		// SignatureAlgorithm: x509.SHA512WithRSA,
+		SignatureAlgorithm: x509.SHA256WithRSA,
 		// SubjectKeyId: []byte{1, 2, 3, 4, 6},
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
 		KeyUsage:    x509.KeyUsageDigitalSignature,
 	}
 	certPrivKey, err := rsa.GenerateKey(rand.Reader, 4096)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	certBytes, err := x509.CreateCertificate(rand.Reader, cert, cacert, &certPrivKey.PublicKey, caprivateKey)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	certFileName := path.Join(TargetFolder, strings.Trim(p.CommonName, " \n \r")+".cert")
-	certPublicFileName := path.Join(TargetFolder, strings.Trim(p.CommonName, " \n \r")+".pub.key")
-	certPrivateKeyFileName := path.Join(TargetFolder, strings.Trim(p.CommonName, " \n \r")+".key")
+	certFileName := path.Join(TargetFolder, strings.Trim(p.CommonName, "\n\r .?!@#$%^")+".cert")
+	certPublicFileName := path.Join(TargetFolder, strings.Trim(p.CommonName, "\n\r .?!@#$%^")+".pub.key")
+	certPrivateKeyFileName := path.Join(TargetFolder, strings.Trim(p.CommonName, "\n\r .?!@#$%^")+".key")
 	certPEM := new(bytes.Buffer)
 	err = pem.Encode(certPEM, &pem.Block{
 		Type:  "CERTIFICATE",
 		Bytes: certBytes,
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ioutil.WriteFile(certFileName, certPEM.Bytes(), os.ModePerm)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	ListOfFilesCreated = append(ListOfFilesCreated, certFileName)
 	//creating bundled version in case ca is not root ca
 	//we can check if supplied ca is root or intermediate, if its intermediate, we have to create bundled version of the certificate
 	CreateBundledVersion := true
@@ -1469,7 +1509,7 @@ func (p *PeerCert) CreateAndSignNewPeerCert(TargetFolder string, cacert *x509.Ce
 		CreateBundledVersion = false
 	}
 	if CreateBundledVersion {
-		certBundleFileName := path.Join(TargetFolder, strings.Trim(cert.Subject.CommonName, " \n \r")+".bundle.cert")
+		certBundleFileName := path.Join(TargetFolder, strings.Trim(cert.Subject.CommonName, "\n\r .?!@#$%^")+".bundle.cert")
 		caBytes := cacert.Raw
 		caPEM := new(bytes.Buffer)
 		err = pem.Encode(caPEM, &pem.Block{
@@ -1477,15 +1517,16 @@ func (p *PeerCert) CreateAndSignNewPeerCert(TargetFolder string, cacert *x509.Ce
 			Bytes: caBytes,
 		})
 		if err != nil {
-			return err
+			return nil, err
 		}
 		byteBundle := make([]byte, len(certPEM.Bytes())+len(caPEM.Bytes()))
 		copy(byteBundle, certPEM.Bytes()[:])
 		copy(byteBundle[len(certPEM.Bytes()):], caPEM.Bytes()[:])
 		ioutil.WriteFile(certBundleFileName, byteBundle, os.ModePerm)
 		if err != nil {
-			return err
+			return nil, err
 		}
+		ListOfFilesCreated = append(ListOfFilesCreated, certBundleFileName)
 	}
 	certPublicKeyPEM := new(bytes.Buffer)
 	err = pem.Encode(certPublicKeyPEM, &pem.Block{
@@ -1493,58 +1534,58 @@ func (p *PeerCert) CreateAndSignNewPeerCert(TargetFolder string, cacert *x509.Ce
 		Bytes: x509.MarshalPKCS1PublicKey(&certPrivKey.PublicKey),
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ioutil.WriteFile(certPublicFileName, certPublicKeyPEM.Bytes(), os.ModePerm)
 	if err != nil {
-		return err
+		return nil, err
 	}
-
+	ListOfFilesCreated = append(ListOfFilesCreated, certPublicFileName)
 	certPrivKeyPEM := new(bytes.Buffer)
 	err = pem.Encode(certPrivKeyPEM, &pem.Block{
 		Type:  "RSA PRIVATE KEY",
 		Bytes: x509.MarshalPKCS1PrivateKey(certPrivKey),
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ioutil.WriteFile(certPrivateKeyFileName, certPrivKeyPEM.Bytes(), os.ModePerm)
 	if err != nil {
-		return err
+		return nil, err
 	}
-
+	ListOfFilesCreated = append(ListOfFilesCreated, certPrivateKeyFileName)
 	p.Cert = cert
 	p.PrivateKey = certPrivKey
 	p.PublicKey = &certPrivKey.PublicKey
 	p.PEMcert = certPEM.Bytes()
 	p.PEMpublic = certPublicKeyPEM.Bytes()
 	p.PEMprivate = certPrivKeyPEM.Bytes()
-	return nil
+	return ListOfFilesCreated, nil
 }
 
-func (p *PeerCert) CreatePeerSignRequest(TargetFolder string) error {
+func (p *PeerCert) CreatePeerSignRequest(TargetFolder string) ([]string, error) {
 
 	if p.CommonName == "" {
-		return errors.New("CommonName Cannot be empty")
+		return nil, errors.New("CommonName Cannot be empty")
 	}
 	if p.Organization == "" {
-		return errors.New("Organization Cannot be empty")
+		return nil, errors.New("Organization Cannot be empty")
 	}
 
 	err := os.MkdirAll(TargetFolder, os.ModePerm)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	CSRFileName := path.Join(TargetFolder, strings.Trim(p.CommonName, " \n \r")+".csr")
+	CSRFileName := path.Join(TargetFolder, strings.Trim(p.CommonName, "\n\r .?!@#$%^")+".csr")
 	if _, err := os.Stat(CSRFileName); !os.IsNotExist(err) {
 		// path/to/whatever exists
-		return errors.New("Target Certificate Request Exists, delete it yourself")
+		return nil, errors.New("Target Certificate Request Exists, delete it yourself")
 	}
-	csrPublicFileName := path.Join(TargetFolder, strings.Trim(p.CommonName, " \n \r")+".pub.key")
-	csrPrivateKeyFileName := path.Join(TargetFolder, strings.Trim(p.CommonName, " \n \r")+".key")
+	csrPublicFileName := path.Join(TargetFolder, strings.Trim(p.CommonName, "\n\r .?!@#$%^")+".pub.key")
+	csrPrivateKeyFileName := path.Join(TargetFolder, strings.Trim(p.CommonName, "\n\r .?!@#$%^")+".key")
 	// Cryptographically secure.
-
+	var ListOfFilesCreated []string
 	csrReq := &x509.CertificateRequest{
 		Subject: pkix.Name{
 			CommonName:   p.CommonName,
@@ -1553,7 +1594,8 @@ func (p *PeerCert) CreatePeerSignRequest(TargetFolder string) error {
 			Province:     []string{p.Province},
 			Locality:     []string{p.Locality},
 		},
-		SignatureAlgorithm: x509.SHA512WithRSA,
+		// SignatureAlgorithm: x509.SHA512WithRSA,
+		SignatureAlgorithm: x509.SHA256WithRSA,
 		DNSNames:           p.DNSNames,
 		IPAddresses:        p.IPAddresses,
 	}
@@ -1561,13 +1603,13 @@ func (p *PeerCert) CreatePeerSignRequest(TargetFolder string) error {
 	// create our private and public key
 	csrPrivKey, err := rsa.GenerateKey(rand.Reader, 4096)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// create the CA
 	CSRBytes, err := x509.CreateCertificateRequest(rand.Reader, csrReq, csrPrivKey)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	p.PrivateKey = csrPrivKey
 	p.PublicKey = &csrPrivKey.PublicKey
@@ -1578,40 +1620,43 @@ func (p *PeerCert) CreatePeerSignRequest(TargetFolder string) error {
 		Bytes: CSRBytes,
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ioutil.WriteFile(CSRFileName, csrPEM.Bytes(), os.ModePerm)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	ListOfFilesCreated = append(ListOfFilesCreated, CSRFileName)
 	csrPublicKeyPEM := new(bytes.Buffer)
 	err = pem.Encode(csrPublicKeyPEM, &pem.Block{
 		Type:  "RSA PUBLIC KEY",
 		Bytes: x509.MarshalPKCS1PublicKey(&csrPrivKey.PublicKey),
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ioutil.WriteFile(csrPublicFileName, csrPublicKeyPEM.Bytes(), os.ModePerm)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	ListOfFilesCreated = append(ListOfFilesCreated, csrPublicFileName)
 	csrPrivKeyPEM := new(bytes.Buffer)
 	err = pem.Encode(csrPrivKeyPEM, &pem.Block{
 		Type:  "RSA PRIVATE KEY",
 		Bytes: x509.MarshalPKCS1PrivateKey(csrPrivKey),
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ioutil.WriteFile(csrPrivateKeyFileName, csrPrivKeyPEM.Bytes(), os.ModePerm)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	ListOfFilesCreated = append(ListOfFilesCreated, csrPrivateKeyFileName)
 	p.PEMcert = csrPEM.Bytes()
 	p.PEMpublic = csrPublicKeyPEM.Bytes()
 	p.PEMprivate = csrPrivKeyPEM.Bytes()
-	return nil
+	return ListOfFilesCreated, nil
 }
 
 func (p *PeerCert) LoadPeerCertFromFiles(certPEMFile string, certPrivateKeyPEMFile string) error {
@@ -1678,21 +1723,21 @@ func (p *PeerCert) LoadPeerCertFromFiles(certPEMFile string, certPrivateKeyPEMFi
 	return nil
 }
 
-func SignPeerCSR(csrfilePEM string, TargetFolder string, NotAfterNumberOfYears uint8, cacert *x509.Certificate, caprivateKey *rsa.PrivateKey) error {
+func SignPeerCSR(csrfilePEM string, TargetFolder string, NotAfterNumberOfYears uint8, cacert *x509.Certificate, caprivateKey *rsa.PrivateKey) ([]string, error) {
 	if _, err := os.Stat(csrfilePEM); os.IsNotExist(err) {
 		// path/to/whatever does not exist
-		return fmt.Errorf(fmt.Sprintf("cannot find: %s", csrfilePEM))
+		return nil, fmt.Errorf(fmt.Sprintf("cannot find: %s", csrfilePEM))
 
 	}
 
 	csrbytes, err := ioutil.ReadFile(csrfilePEM)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	block, _ := pem.Decode(csrbytes)
 	csr, err := x509.ParseCertificateRequest(block.Bytes)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	notebefore := time.Now()
 	if NotAfterNumberOfYears == 0 {
@@ -1702,9 +1747,9 @@ func SignPeerCSR(csrfilePEM string, TargetFolder string, NotAfterNumberOfYears u
 	// Cryptographically secure.
 	n, err := rand.Int(rand.Reader, big.NewInt(1000000))
 	if err != nil {
-		return err
+		return nil, err
 	}
-
+	var ListOfFilesCreated []string
 	cert := &x509.Certificate{
 		SerialNumber:       n,
 		Subject:            csr.Subject,
@@ -1720,7 +1765,7 @@ func SignPeerCSR(csrfilePEM string, TargetFolder string, NotAfterNumberOfYears u
 	}
 	certBytes, err := x509.CreateCertificate(rand.Reader, cert, cacert, &caprivateKey.PublicKey, caprivateKey)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	certPEM := new(bytes.Buffer)
 	err = pem.Encode(certPEM, &pem.Block{
@@ -1728,17 +1773,18 @@ func SignPeerCSR(csrfilePEM string, TargetFolder string, NotAfterNumberOfYears u
 		Bytes: certBytes,
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
-	signedCertFileName := path.Join(strings.Trim(cert.Subject.CommonName, " \n \r") + ".cert")
+	signedCertFileName := path.Join(TargetFolder, strings.Trim(cert.Subject.CommonName, "\n\r .?!@#$%^")+".cert")
 	if _, err := os.Stat(signedCertFileName); !os.IsNotExist(err) {
 		// path/to/whatever exists
-		return errors.New("Target Certificate Exists, delete it yourself")
+		return nil, errors.New("Target Certificate Exists, delete it yourself")
 	}
 	ioutil.WriteFile(signedCertFileName, certPEM.Bytes(), os.ModePerm)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	ListOfFilesCreated = append(ListOfFilesCreated, signedCertFileName)
 	//creating bundled version in case ca is not root ca
 	//we can check if supplied ca is root or intermediate, if its intermediate, we have to create bundled version of the certificate
 	CreateBundledVersion := true
@@ -1746,7 +1792,7 @@ func SignPeerCSR(csrfilePEM string, TargetFolder string, NotAfterNumberOfYears u
 		CreateBundledVersion = false
 	}
 	if CreateBundledVersion {
-		certBundleFileName := path.Join(TargetFolder, strings.Trim(cert.Subject.CommonName, " \n \r")+".bundle.cert")
+		certBundleFileName := path.Join(TargetFolder, strings.Trim(cert.Subject.CommonName, "\n\r .?!@#$%^")+".bundle.cert")
 		caBytes := cacert.Raw
 		caPEM := new(bytes.Buffer)
 		err = pem.Encode(caPEM, &pem.Block{
@@ -1754,15 +1800,16 @@ func SignPeerCSR(csrfilePEM string, TargetFolder string, NotAfterNumberOfYears u
 			Bytes: caBytes,
 		})
 		if err != nil {
-			return err
+			return nil, err
 		}
 		byteBundle := make([]byte, len(certPEM.Bytes())+len(caPEM.Bytes()))
 		copy(byteBundle, certPEM.Bytes()[:])
 		copy(byteBundle[len(certPEM.Bytes()):], caPEM.Bytes()[:])
 		ioutil.WriteFile(certBundleFileName, byteBundle, os.ModePerm)
 		if err != nil {
-			return err
+			return nil, err
 		}
+		ListOfFilesCreated = append(ListOfFilesCreated, certBundleFileName)
 	}
-	return nil
+	return ListOfFilesCreated, nil
 }
