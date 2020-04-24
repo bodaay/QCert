@@ -99,7 +99,11 @@ func (r *RootCA) CreateNewRootCA(TargetFolder string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	r.CACert = ca
+	certparsed, err := x509.ParseCertificate(caBytes)
+	if err != nil {
+		return nil, err
+	}
+	r.CACert = certparsed
 	r.CAPrivate = caPrivKey
 	r.CAPublic = &caPrivKey.PublicKey
 	// pem encode
@@ -284,7 +288,11 @@ func (i *IntermediateCert) CreateNewSignedIntermediateCA(TargetFolder string, ro
 	if err != nil {
 		return nil, err
 	}
-	i.CACert = ca
+	certparsed, err := x509.ParseCertificate(caBytes)
+	if err != nil {
+		return nil, err
+	}
+	i.CACert = certparsed
 	i.CAPrivate = caPrivKey
 	i.CAPublic = &caPrivKey.PublicKey
 	// pem encode
@@ -708,7 +716,11 @@ func (s *ServerCert) CreateAndSignNewServerCert(TargetFolder string, cacert *x50
 		return nil, err
 	}
 	ListOfFilesCreated = append(ListOfFilesCreated, certPrivateKeyFileName)
-	s.Cert = cert
+	certparsed, err := x509.ParseCertificate(certBytes)
+	if err != nil {
+		return nil, err
+	}
+	s.Cert = certparsed
 	s.PrivateKey = certPrivKey
 	s.PublicKey = &certPrivKey.PublicKey
 	s.PEMcert = certPEM.Bytes()
@@ -1136,7 +1148,11 @@ func (c *ClientCert) CreateAndSignNewClientCert(TargetFolder string, cacert *x50
 		return nil, err
 	}
 	ListOfFilesCreated = append(ListOfFilesCreated, certPrivateKeyFileName)
-	c.Cert = cert
+	certparsed, err := x509.ParseCertificate(certBytes)
+	if err != nil {
+		return nil, err
+	}
+	c.Cert = certparsed
 	c.PrivateKey = certPrivKey
 	c.PublicKey = &certPrivKey.PublicKey
 	c.PEMcert = certPEM.Bytes()
@@ -1554,7 +1570,11 @@ func (p *PeerCert) CreateAndSignNewPeerCert(TargetFolder string, cacert *x509.Ce
 		return nil, err
 	}
 	ListOfFilesCreated = append(ListOfFilesCreated, certPrivateKeyFileName)
-	p.Cert = cert
+	certparsed, err := x509.ParseCertificate(certBytes)
+	if err != nil {
+		return nil, err
+	}
+	p.Cert = certparsed
 	p.PrivateKey = certPrivKey
 	p.PublicKey = &certPrivKey.PublicKey
 	p.PEMcert = certPEM.Bytes()
@@ -1813,3 +1833,89 @@ func SignPeerCSR(csrfilePEM string, TargetFolder string, NotAfterNumberOfYears u
 	}
 	return ListOfFilesCreated, nil
 }
+
+/*
+//Testing
+	os.RemoveAll("certs")
+	os.RemoveAll("certs_csr")
+	rootca := certtools.RootCA{
+		CommonName:   "Khalefa RootCA",
+		Organization: "Test Company",
+	}
+	err := rootca.CreateNewRootCA("certs")
+	if err != nil {
+		panic(err)
+	}
+	//Test Loading
+	rootcaLoaded := certtools.RootCA{}
+	err = rootcaLoaded.LoadRootCAFromFiles("certs/rootca.cert", "certs/rootca.key")
+	if err != nil {
+		panic(err)
+	}
+
+	//Intermediate Direct
+	intermediateCA := certtools.IntermediateCert{
+		CommonName:   "Khalefa IntermediateCA",
+		Organization: "Test Company",
+	}
+	err = intermediateCA.CreateNewSignedIntermediateCA("certs", rootcaLoaded.CACert, rootcaLoaded.CAPrivate)
+	if err != nil {
+		panic(err)
+	}
+	//Test Loading
+	intermediatecaLoaded := certtools.IntermediateCert{}
+	//Test Loading IT
+	err = intermediatecaLoaded.LoadIntermediateCAFromFiles("certs/intermediate.cert", "certs/intermediate.key")
+	if err != nil {
+		panic(err)
+	}
+
+	//Intermediate CSR
+	intermediateCSRCA := certtools.IntermediateCert{
+		CommonName:   "Khalefa IntermediateCA By CSR",
+		Organization: "Test Company",
+	}
+	err = intermediateCSRCA.CreateIntermediateCASignRequest("certs_csr")
+	if err != nil {
+		panic(err)
+	}
+	//Test Signing CSR
+	err = certtools.SignIntermediateCSR("certs_csr/intermediate.csr", "certs_csr", 15, rootcaLoaded.CACert, rootcaLoaded.CAPrivate)
+	if err != nil {
+		panic(err)
+	}
+	//Test out server Certificate Creation
+	server := certtools.ServerCert{
+		CommonName:   "server.khalefa.com",
+		Organization: "Test Company",
+	}
+	server.DNSNames = append(server.DNSNames, "server2.khalefa.com")
+	server.DNSNames = append(server.DNSNames, "server3.khalefa.com")
+	server.IPAddresses = append(server.IPAddresses, net.IPv4(127, 0, 0, 1))
+	server.IPAddresses = append(server.IPAddresses, net.IPv6loopback)
+	err = server.CreateAndSignNewServerCert("certs", intermediatecaLoaded.CACert, intermediatecaLoaded.CAPrivate)
+	if err != nil {
+		//panic(err)
+	}
+
+	//Test out client Certificate Creation
+	client := certtools.ClientCert{
+		CommonName:   "khalefaClient",
+		Organization: "Test Company",
+	}
+	err = client.CreateAndSignNewClientCert("certs", intermediatecaLoaded.CACert, intermediatecaLoaded.CAPrivate)
+	if err != nil {
+		//panic(err)
+	}
+
+	//Test out peer Certificate Creation
+	peer := certtools.PeerCert{
+		CommonName:   "KhalefaPeer",
+		Organization: "Shit Company",
+	}
+	err = peer.CreateAndSignNewPeerCert("certs", intermediatecaLoaded.CACert, intermediatecaLoaded.CAPrivate)
+	if err != nil {
+		//panic(err)
+	}
+
+*/
