@@ -48,6 +48,15 @@ func configureAllRoutes(e *echo.Echo) {
 
 	serverCreateNewSignedCertificateRoute(e)
 	serverSignCSRRoute(e)
+	serverGetCSRRoute(e)
+
+	clientCreateNewSignedCertificateRoute(e)
+	clientSignCSRRoute(e)
+	clientGetCSRRoute(e)
+
+	peerCreateNewSignedCertificateRoute(e)
+	peerSignCSRRoute(e)
+	peerGetCSRRoute(e)
 }
 
 //Root Routes
@@ -622,52 +631,655 @@ func serverSignCSRRoute(e *echo.Echo) {
 	})
 }
 
-// func serverGetCSRRoute(e *echo.Echo) {
-// 	e.POST("/server/csr", func(c echo.Context) error {
+func serverGetCSRRoute(e *echo.Echo) {
+	e.POST("/server/csr", func(c echo.Context) error {
+		r := new(serverCertReq)
+		err := json.Unmarshal([]byte(c.FormValue("data")), r)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		if r.CommonName == "" {
+			return c.String(http.StatusBadRequest, "CommonName Cannot be empty")
+		}
+		if r.Organization == "" {
+			return c.String(http.StatusBadRequest, "Organization Cannot be empty")
+		}
+		rr := ServerCert{
+			CommonName:            r.CommonName,
+			Organization:          r.Organization,
+			Country:               r.Country,
+			Province:              r.Province,
+			Locality:              r.Locality,
+			DNSNames:              r.DNSNames,
+			NotAfterNumberOfYears: r.NotAfterNumberOfYears,
+		}
+		for _, ipstring := range r.IPAddresses {
+			if !strings.Contains(ipstring, "/") { // I'll just append /32 in case its missing
+				ipstring = ipstring + "/32"
+			}
+			ip, _, err := net.ParseCIDR(ipstring)
+			if err != nil {
+				continue
+			}
+			rr.IPAddresses = append(rr.IPAddresses, ip)
+		}
+		MainOutPutFolderName := "Out"
+		tmepFolderName := path.Join(MainOutPutFolderName, "server_csr")
+		os.Remove(tmepFolderName)
+		os.MkdirAll(tmepFolderName, os.ModePerm)
+		defer os.RemoveAll(MainOutPutFolderName)
+		outFilesList, err := rr.CreateServerSignRequest(tmepFolderName)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		zipfile := path.Join(tmepFolderName, "server_csr.zip")
+		os.Remove(zipfile)
+		flags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
+		file, err := os.OpenFile(zipfile, flags, 0644)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		defer file.Close()
 
-// 		return c.JSONPretty(http.StatusOK, clientList, " ")
-// 	})
-// }
+		zipw := zip.NewWriter(file)
+		defer zipw.Close()
 
-// //Client
-// func clientCreateNewSignedCertificateRoute(e *echo.Echo) {
-// 	e.POST("/client/new", func(c echo.Context) error {
+		for _, filename := range outFilesList {
+			if err := appendFiles(filename, zipw); err != nil {
+				return c.String(http.StatusBadRequest, err.Error())
+			}
+		}
+		zipw.Close()
 
-// 		return c.JSONPretty(http.StatusOK, clientList, " ")
-// 	})
-// }
-// func clientGetCSRRoute(e *echo.Echo) {
-// 	e.POST("/client/csr", func(c echo.Context) error {
+		return c.Attachment(zipfile, "server_csr.zip")
 
-// 		return c.JSONPretty(http.StatusOK, clientList, " ")
-// 	})
-// }
-// func clientSignCSRRoute(e *echo.Echo) {
-// 	e.POST("/client/sign", func(c echo.Context) error {
+	})
+}
 
-// 		return c.JSONPretty(http.StatusOK, clientList, " ")
-// 	})
-// }
+type clientCertReq struct {
+	CommonName            string
+	Organization          string
+	Country               string
+	Province              string
+	Locality              string
+	NotAfterNumberOfYears uint8 `json:"NotAfterNumberOfYears"`
+}
 
-// //Peer
-// func peerCreateNewSignedCertificateRoute(e *echo.Echo) {
-// 	e.POST("/client/new", func(c echo.Context) error {
+//Client
+func clientCreateNewSignedCertificateRoute(e *echo.Echo) {
+	e.POST("/client/new", func(c echo.Context) error {
+		r := new(clientCertReq)
+		err := json.Unmarshal([]byte(c.FormValue("data")), r)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		if r.CommonName == "" {
+			return c.String(http.StatusBadRequest, "CommonName Cannot be empty")
+		}
+		if r.Organization == "" {
+			return c.String(http.StatusBadRequest, "Organization Cannot be empty")
+		}
+		rr := ClientCert{
+			CommonName:            r.CommonName,
+			Organization:          r.Organization,
+			Country:               r.Country,
+			Province:              r.Province,
+			Locality:              r.Locality,
+			NotAfterNumberOfYears: r.NotAfterNumberOfYears,
+		}
 
-// 		return c.JSONPretty(http.StatusOK, clientList, " ")
-// 	})
-// }
-// func peerGetCSRRoute(e *echo.Echo) {
-// 	e.POST("/client/csr", func(c echo.Context) error {
+		MainOutPutFolderName := "Out"
+		tmepFolderName := path.Join(MainOutPutFolderName, "client")
+		os.Remove(tmepFolderName)
+		os.MkdirAll(tmepFolderName, os.ModePerm)
+		defer os.RemoveAll(MainOutPutFolderName)
+		//Cert File
+		caRec, err := c.FormFile("caCertFile")
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		src0, err := caRec.Open()
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		defer src0.Close()
 
-// 		return c.JSONPretty(http.StatusOK, clientList, " ")
-// 	})
-// }
-// func peerSignCSRRoute(e *echo.Echo) {
-// 	e.POST("/client/sign", func(c echo.Context) error {
+		// Destination
+		caCertFinal := path.Join(tmepFolderName, "ca.cert") //I'm naming this file like this, because it could be either root or intermediate thats signing the certificate
+		dst0, err := os.Create(caCertFinal)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		defer dst0.Close()
+		if _, err = io.Copy(dst0, src0); err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		src0.Close()
+		dst0.Close()
 
-// 		return c.JSONPretty(http.StatusOK, clientList, " ")
-// 	})
-// }
+		//Key File
+		caPriv, err := c.FormFile("caPrivateKey")
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		src1, err := caPriv.Open()
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		defer src1.Close()
+		caPrivFinal := path.Join(tmepFolderName, "ca.key")
+		dst1, err := os.Create(caPrivFinal)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		defer dst1.Close()
+		if _, err = io.Copy(dst1, src1); err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		src1.Close()
+		dst1.Close()
+
+		ca := new(RootCA)
+		err = ca.LoadRootCAFromFiles(caCertFinal, caPrivFinal)
+		if _, err = io.Copy(dst1, src1); err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		outFilesList, err := rr.CreateAndSignNewClientCert(tmepFolderName, ca.CACert, ca.CAPrivate)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+
+		certBaseName := strings.Trim(rr.CommonName, "\n\r .?!@#$%^")
+
+		zipfile := path.Join(tmepFolderName, certBaseName+".zip")
+		os.Remove(zipfile)
+		flags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
+		file, err := os.OpenFile(zipfile, flags, 0644)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		defer file.Close()
+
+		zipw := zip.NewWriter(file)
+		defer zipw.Close()
+
+		for _, filename := range outFilesList {
+			if err := appendFiles(filename, zipw); err != nil {
+				return c.String(http.StatusBadRequest, err.Error())
+			}
+		}
+		zipw.Close()
+
+		return c.Attachment(zipfile, certBaseName+".zip")
+	})
+}
+func clientSignCSRRoute(e *echo.Echo) {
+	e.POST("/client/sign", func(c echo.Context) error {
+		MainOutPutFolderName := "Out"
+		tmepFolderName := path.Join(MainOutPutFolderName, "client")
+		os.Remove(tmepFolderName)
+		os.MkdirAll(tmepFolderName, os.ModePerm)
+		defer os.RemoveAll(MainOutPutFolderName)
+		//Cert File
+		caRec, err := c.FormFile("caCertFile")
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		src0, err := caRec.Open()
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		defer src0.Close()
+
+		// Destination
+		caCertFinal := path.Join(tmepFolderName, "ca.cert")
+		dst0, err := os.Create(caCertFinal)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		defer dst0.Close()
+		if _, err = io.Copy(dst0, src0); err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		src0.Close()
+		dst0.Close()
+
+		//Key File
+		caPriv, err := c.FormFile("caPrivateKey")
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		src1, err := caPriv.Open()
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		defer src1.Close()
+		caPrivFinal := path.Join(tmepFolderName, "ca.key")
+		dst1, err := os.Create(caPrivFinal)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		defer dst1.Close()
+		if _, err = io.Copy(dst1, src1); err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		src1.Close()
+		dst1.Close()
+
+		//csr File
+		csrFile, err := c.FormFile("csrFile")
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		src3, err := csrFile.Open()
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		defer src3.Close()
+		csrFinal := path.Join(tmepFolderName, "client.csr")
+		dst3, err := os.Create(csrFinal)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		defer dst3.Close()
+		if _, err = io.Copy(dst3, src3); err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		src3.Close()
+		dst3.Close()
+
+		ca := new(RootCA)
+		err = ca.LoadRootCAFromFiles(caCertFinal, caPrivFinal)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		numberOfYears, err := strconv.Atoi(c.FormValue("NotAfterNumberOfYears"))
+		if err != nil {
+			numberOfYears = 15
+		}
+		outFilesList, err := SignClientCSR(csrFinal, tmepFolderName, uint8(numberOfYears), ca.CACert, ca.CAPrivate)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+
+		zipfile := path.Join(tmepFolderName, "client_csr_signed.zip")
+		os.Remove(zipfile)
+		flags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
+		file, err := os.OpenFile(zipfile, flags, 0644)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		defer file.Close()
+
+		zipw := zip.NewWriter(file)
+		defer zipw.Close()
+
+		for _, filename := range outFilesList {
+			if err := appendFiles(filename, zipw); err != nil {
+				return c.String(http.StatusBadRequest, err.Error())
+			}
+		}
+		zipw.Close()
+
+		return c.Attachment(zipfile, "client_csr_signed.zip")
+	})
+}
+func clientGetCSRRoute(e *echo.Echo) {
+	e.POST("/client/csr", func(c echo.Context) error {
+		r := new(clientCertReq)
+		err := json.Unmarshal([]byte(c.FormValue("data")), r)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		if r.CommonName == "" {
+			return c.String(http.StatusBadRequest, "CommonName Cannot be empty")
+		}
+		if r.Organization == "" {
+			return c.String(http.StatusBadRequest, "Organization Cannot be empty")
+		}
+		rr := ServerCert{
+			CommonName:            r.CommonName,
+			Organization:          r.Organization,
+			Country:               r.Country,
+			Province:              r.Province,
+			Locality:              r.Locality,
+			NotAfterNumberOfYears: r.NotAfterNumberOfYears,
+		}
+
+		MainOutPutFolderName := "Out"
+		tmepFolderName := path.Join(MainOutPutFolderName, "clientr_csr")
+		os.Remove(tmepFolderName)
+		os.MkdirAll(tmepFolderName, os.ModePerm)
+		defer os.RemoveAll(MainOutPutFolderName)
+		outFilesList, err := rr.CreateServerSignRequest(tmepFolderName)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		zipfile := path.Join(tmepFolderName, "client_csr.zip")
+		os.Remove(zipfile)
+		flags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
+		file, err := os.OpenFile(zipfile, flags, 0644)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		defer file.Close()
+
+		zipw := zip.NewWriter(file)
+		defer zipw.Close()
+
+		for _, filename := range outFilesList {
+			if err := appendFiles(filename, zipw); err != nil {
+				return c.String(http.StatusBadRequest, err.Error())
+			}
+		}
+		zipw.Close()
+
+		return c.Attachment(zipfile, "client_csr.zip")
+	})
+}
+
+type peerCertReq struct {
+	CommonName            string
+	Organization          string
+	Country               string
+	Province              string
+	Locality              string
+	DNSNames              []string
+	IPAddresses           []string
+	NotAfterNumberOfYears uint8
+}
+
+func peerCreateNewSignedCertificateRoute(e *echo.Echo) {
+	e.POST("/peer/new", func(c echo.Context) error {
+		r := new(peerCertReq)
+		err := json.Unmarshal([]byte(c.FormValue("data")), r)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		if r.CommonName == "" {
+			return c.String(http.StatusBadRequest, "CommonName Cannot be empty")
+		}
+		if r.Organization == "" {
+			return c.String(http.StatusBadRequest, "Organization Cannot be empty")
+		}
+		rr := ServerCert{
+			CommonName:            r.CommonName,
+			Organization:          r.Organization,
+			Country:               r.Country,
+			Province:              r.Province,
+			Locality:              r.Locality,
+			DNSNames:              r.DNSNames,
+			NotAfterNumberOfYears: r.NotAfterNumberOfYears,
+		}
+		for _, ipstring := range r.IPAddresses {
+			if !strings.Contains(ipstring, "/") { // I'll just append /32 in case its missing
+				ipstring = ipstring + "/32"
+			}
+			ip, _, err := net.ParseCIDR(ipstring)
+			if err != nil {
+				continue
+			}
+			rr.IPAddresses = append(rr.IPAddresses, ip)
+		}
+		MainOutPutFolderName := "Out"
+		tmepFolderName := path.Join(MainOutPutFolderName, "peer")
+		os.Remove(tmepFolderName)
+		os.MkdirAll(tmepFolderName, os.ModePerm)
+		defer os.RemoveAll(MainOutPutFolderName)
+		//Cert File
+		caRec, err := c.FormFile("caCertFile")
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		src0, err := caRec.Open()
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		defer src0.Close()
+
+		// Destination
+		caCertFinal := path.Join(tmepFolderName, "ca.cert") //I'm naming this file like this, because it could be either root or intermediate thats signing the certificate
+		dst0, err := os.Create(caCertFinal)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		defer dst0.Close()
+		if _, err = io.Copy(dst0, src0); err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		src0.Close()
+		dst0.Close()
+
+		//Key File
+		caPriv, err := c.FormFile("caPrivateKey")
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		src1, err := caPriv.Open()
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		defer src1.Close()
+		caPrivFinal := path.Join(tmepFolderName, "ca.key")
+		dst1, err := os.Create(caPrivFinal)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		defer dst1.Close()
+		if _, err = io.Copy(dst1, src1); err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		src1.Close()
+		dst1.Close()
+
+		ca := new(RootCA)
+		err = ca.LoadRootCAFromFiles(caCertFinal, caPrivFinal)
+		if _, err = io.Copy(dst1, src1); err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		outFilesList, err := rr.CreateAndSignNewServerCert(tmepFolderName, ca.CACert, ca.CAPrivate)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+
+		certBaseName := strings.Trim(rr.CommonName, "\n\r .?!@#$%^")
+
+		zipfile := path.Join(tmepFolderName, certBaseName+".zip")
+		os.Remove(zipfile)
+		flags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
+		file, err := os.OpenFile(zipfile, flags, 0644)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		defer file.Close()
+
+		zipw := zip.NewWriter(file)
+		defer zipw.Close()
+
+		for _, filename := range outFilesList {
+			if err := appendFiles(filename, zipw); err != nil {
+				return c.String(http.StatusBadRequest, err.Error())
+			}
+		}
+		zipw.Close()
+
+		return c.Attachment(zipfile, certBaseName+".zip")
+	})
+}
+func peerSignCSRRoute(e *echo.Echo) {
+	e.POST("/peer/sign", func(c echo.Context) error {
+		MainOutPutFolderName := "Out"
+		tmepFolderName := path.Join(MainOutPutFolderName, "peer")
+		os.Remove(tmepFolderName)
+		os.MkdirAll(tmepFolderName, os.ModePerm)
+		defer os.RemoveAll(MainOutPutFolderName)
+		//Cert File
+		caRec, err := c.FormFile("caCertFile")
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		src0, err := caRec.Open()
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		defer src0.Close()
+
+		// Destination
+		caCertFinal := path.Join(tmepFolderName, "ca.cert")
+		dst0, err := os.Create(caCertFinal)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		defer dst0.Close()
+		if _, err = io.Copy(dst0, src0); err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		src0.Close()
+		dst0.Close()
+
+		//Key File
+		caPriv, err := c.FormFile("caPrivateKey")
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		src1, err := caPriv.Open()
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		defer src1.Close()
+		caPrivFinal := path.Join(tmepFolderName, "ca.key")
+		dst1, err := os.Create(caPrivFinal)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		defer dst1.Close()
+		if _, err = io.Copy(dst1, src1); err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		src1.Close()
+		dst1.Close()
+
+		//csr File
+		csrFile, err := c.FormFile("csrFile")
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		src3, err := csrFile.Open()
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		defer src3.Close()
+		csrFinal := path.Join(tmepFolderName, "peer.csr")
+		dst3, err := os.Create(csrFinal)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		defer dst3.Close()
+		if _, err = io.Copy(dst3, src3); err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		src3.Close()
+		dst3.Close()
+
+		ca := new(RootCA)
+		err = ca.LoadRootCAFromFiles(caCertFinal, caPrivFinal)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		numberOfYears, err := strconv.Atoi(c.FormValue("NotAfterNumberOfYears"))
+		if err != nil {
+			numberOfYears = 15
+		}
+		outFilesList, err := SignPeerCSR(csrFinal, tmepFolderName, uint8(numberOfYears), ca.CACert, ca.CAPrivate)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+
+		zipfile := path.Join(tmepFolderName, "peer_csr_signed.zip")
+		os.Remove(zipfile)
+		flags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
+		file, err := os.OpenFile(zipfile, flags, 0644)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		defer file.Close()
+
+		zipw := zip.NewWriter(file)
+		defer zipw.Close()
+
+		for _, filename := range outFilesList {
+			if err := appendFiles(filename, zipw); err != nil {
+				return c.String(http.StatusBadRequest, err.Error())
+			}
+		}
+		zipw.Close()
+
+		return c.Attachment(zipfile, "peer_csr_signed.zip")
+	})
+}
+func peerGetCSRRoute(e *echo.Echo) {
+	e.POST("/peer/csr", func(c echo.Context) error {
+		r := new(serverCertReq)
+		err := json.Unmarshal([]byte(c.FormValue("data")), r)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		if r.CommonName == "" {
+			return c.String(http.StatusBadRequest, "CommonName Cannot be empty")
+		}
+		if r.Organization == "" {
+			return c.String(http.StatusBadRequest, "Organization Cannot be empty")
+		}
+		rr := PeerCert{
+			CommonName:            r.CommonName,
+			Organization:          r.Organization,
+			Country:               r.Country,
+			Province:              r.Province,
+			Locality:              r.Locality,
+			DNSNames:              r.DNSNames,
+			NotAfterNumberOfYears: r.NotAfterNumberOfYears,
+		}
+		for _, ipstring := range r.IPAddresses {
+			if !strings.Contains(ipstring, "/") { // I'll just append /32 in case its missing
+				ipstring = ipstring + "/32"
+			}
+			ip, _, err := net.ParseCIDR(ipstring)
+			if err != nil {
+				continue
+			}
+			rr.IPAddresses = append(rr.IPAddresses, ip)
+		}
+		MainOutPutFolderName := "Out"
+		tmepFolderName := path.Join(MainOutPutFolderName, "peer_csr")
+		os.Remove(tmepFolderName)
+		os.MkdirAll(tmepFolderName, os.ModePerm)
+		defer os.RemoveAll(MainOutPutFolderName)
+		outFilesList, err := rr.CreatePeerSignRequest(tmepFolderName)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		zipfile := path.Join(tmepFolderName, "peer_csr.zip")
+		os.Remove(zipfile)
+		flags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
+		file, err := os.OpenFile(zipfile, flags, 0644)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		defer file.Close()
+
+		zipw := zip.NewWriter(file)
+		defer zipw.Close()
+
+		for _, filename := range outFilesList {
+			if err := appendFiles(filename, zipw); err != nil {
+				return c.String(http.StatusBadRequest, err.Error())
+			}
+		}
+		zipw.Close()
+
+		return c.Attachment(zipfile, "peer_csr.zip")
+	})
+}
 
 //from: https://www.golangprograms.com/go-program-to-compress-list-of-files-into-zip.html
 func appendFiles(filename string, zipw *zip.Writer) error {
