@@ -36,9 +36,9 @@ type RootCA struct {
 	TLSCACert             *tls.Certificate
 	CAPublic              *rsa.PublicKey
 	CAPrivate             *rsa.PrivateKey
-	caPEMcert             []byte
-	caPEMpublic           []byte
-	caPEMprivate          []byte
+	CAPEMcert             []byte
+	CAPEMpublic           []byte
+	CAPEMprivate          []byte
 }
 
 func (r *RootCA) CreateNewRootCA(TargetFolder string) ([]string, error) {
@@ -148,11 +148,11 @@ func (r *RootCA) CreateNewRootCA(TargetFolder string) ([]string, error) {
 		return nil, err
 	}
 	ListOfFilesCreated = append(ListOfFilesCreated, rootcaPrivateKeyFileName)
-	r.caPEMcert = caPEM.Bytes()
-	r.caPEMpublic = caPublicKeyPEM.Bytes()
-	r.caPEMprivate = caPrivKeyPEM.Bytes()
+	r.CAPEMcert = caPEM.Bytes()
+	r.CAPEMpublic = caPublicKeyPEM.Bytes()
+	r.CAPEMprivate = caPrivKeyPEM.Bytes()
 	// TLS
-	tlscert, err := tls.X509KeyPair(r.caPEMcert, r.caPEMprivate)
+	tlscert, err := tls.X509KeyPair(r.CAPEMcert, r.CAPEMprivate)
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +174,7 @@ func (r *RootCA) LoadRootCAFromFiles(certPEMFile string, certPrivateKeyPEMFile s
 	if err != nil {
 		return err
 	}
-	r.caPEMcert = cabytes
+	r.CAPEMcert = cabytes
 	// var pubkey *rsa.PublicKey
 	block, _ := pem.Decode(cabytes)
 	cert, err := x509.ParseCertificate(block.Bytes)
@@ -191,7 +191,7 @@ func (r *RootCA) LoadRootCAFromFiles(certPEMFile string, certPrivateKeyPEMFile s
 	if err != nil {
 		return err
 	}
-	r.caPEMpublic = caPublicKeyPEM.Bytes()
+	r.CAPEMpublic = caPublicKeyPEM.Bytes()
 
 	caprivateBytes, err := ioutil.ReadFile(certPrivateKeyPEMFile)
 	if err != nil {
@@ -202,7 +202,7 @@ func (r *RootCA) LoadRootCAFromFiles(certPEMFile string, certPrivateKeyPEMFile s
 	if err != nil {
 		return err
 	}
-	r.caPEMprivate = caprivateBytes
+	r.CAPEMprivate = caprivateBytes
 	r.CAPrivate = caprivate
 
 	r.CommonName = r.CACert.Subject.CommonName
@@ -211,7 +211,7 @@ func (r *RootCA) LoadRootCAFromFiles(certPEMFile string, certPrivateKeyPEMFile s
 	}
 	// r.Organization = r.CACert.Subject.Organization
 	// TLS
-	tlscert, err := tls.X509KeyPair(r.caPEMcert, r.caPEMprivate)
+	tlscert, err := tls.X509KeyPair(r.CAPEMcert, r.CAPEMprivate)
 	if err != nil {
 		return err
 	}
@@ -234,9 +234,9 @@ type IntermediateCert struct {
 	TLSCACert             *tls.Certificate
 	CAPublic              *rsa.PublicKey
 	CAPrivate             *rsa.PrivateKey
-	caPEMcert             []byte
-	caPEMpublic           []byte
-	caPEMprivate          []byte
+	CAPEMcert             []byte
+	CAPEMpublic           []byte
+	CAPEMprivate          []byte
 }
 
 func (i *IntermediateCert) CreateNewSignedIntermediateCA(TargetFolder string, rootcert *x509.Certificate, rootprivateKey *rsa.PrivateKey) ([]string, error) {
@@ -349,11 +349,11 @@ func (i *IntermediateCert) CreateNewSignedIntermediateCA(TargetFolder string, ro
 		return nil, err
 	}
 	ListOfFilesCreated = append(ListOfFilesCreated, intermediatecaPrivateKeyFileName)
-	i.caPEMcert = caPEM.Bytes()
-	i.caPEMpublic = caPublicKeyPEM.Bytes()
-	i.caPEMprivate = caPrivKeyPEM.Bytes()
+	i.CAPEMcert = caPEM.Bytes()
+	i.CAPEMpublic = caPublicKeyPEM.Bytes()
+	i.CAPEMprivate = caPrivKeyPEM.Bytes()
 	// TLS
-	tlscert, err := tls.X509KeyPair(i.caPEMcert, i.caPEMprivate)
+	tlscert, err := tls.X509KeyPair(i.CAPEMcert, i.CAPEMprivate)
 	if err != nil {
 		return nil, err
 	}
@@ -447,9 +447,9 @@ func (i *IntermediateCert) CreateIntermediateCASignRequest(TargetFolder string) 
 		return nil, err
 	}
 	ListOfFilesCreated = append(ListOfFilesCreated, intermediatecaPrivateKeyFileName)
-	i.caPEMcert = csrPEM.Bytes()
-	i.caPEMpublic = csrPublicKeyPEM.Bytes()
-	i.caPEMprivate = csrPrivKeyPEM.Bytes()
+	i.CAPEMcert = csrPEM.Bytes()
+	i.CAPEMpublic = csrPublicKeyPEM.Bytes()
+	i.CAPEMprivate = csrPrivKeyPEM.Bytes()
 	return ListOfFilesCreated, nil
 }
 
@@ -467,7 +467,7 @@ func (i *IntermediateCert) LoadIntermediateCAFromFiles(certPEMFile string, certP
 	if err != nil {
 		return err
 	}
-	i.caPEMcert = cabytes
+	i.CAPEMcert = cabytes
 	// var pubkey *rsa.PublicKey
 	block, _ := pem.Decode(cabytes)
 	cert, err := x509.ParseCertificate(block.Bytes)
@@ -484,7 +484,7 @@ func (i *IntermediateCert) LoadIntermediateCAFromFiles(certPEMFile string, certP
 	if err != nil {
 		return err
 	}
-	i.caPEMpublic = caPublicKeyPEM.Bytes()
+	i.CAPEMpublic = caPublicKeyPEM.Bytes()
 
 	caprivateBytes, err := ioutil.ReadFile(certPrivateKeyPEMFile)
 	if err != nil {
@@ -495,7 +495,7 @@ func (i *IntermediateCert) LoadIntermediateCAFromFiles(certPEMFile string, certP
 	if err != nil {
 		return err
 	}
-	i.caPEMprivate = caprivateBytes
+	i.CAPEMprivate = caprivateBytes
 	i.CAPrivate = caprivate
 
 	i.CommonName = i.CACert.Subject.CommonName
@@ -504,7 +504,7 @@ func (i *IntermediateCert) LoadIntermediateCAFromFiles(certPEMFile string, certP
 	}
 	// i.Organization = i.CACert.Subject.Organization
 	// TLS
-	tlscert, err := tls.X509KeyPair(i.caPEMcert, i.caPEMprivate)
+	tlscert, err := tls.X509KeyPair(i.CAPEMcert, i.CAPEMprivate)
 	if err != nil {
 		return err
 	}
