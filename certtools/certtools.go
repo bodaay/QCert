@@ -220,6 +220,52 @@ func (r *RootCA) LoadRootCAFromFiles(certPEMFile string, certPrivateKeyPEMFile s
 	return nil
 }
 
+func (r *RootCA) LoadRootCAFromPEMString(certPEM string, certPrivateKeyPEM string) error {
+
+	cabytes := []byte(certPEM)
+	r.CAPEMcert = cabytes
+	// var pubkey *rsa.PublicKey
+	block, _ := pem.Decode(cabytes)
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return err
+	}
+	r.CACert = cert
+	r.CAPublic = cert.PublicKey.(*rsa.PublicKey)
+	caPublicKeyPEM := new(bytes.Buffer)
+	err = pem.Encode(caPublicKeyPEM, &pem.Block{
+		Type:  "RSA PUBLIC KEY",
+		Bytes: x509.MarshalPKCS1PublicKey(r.CAPublic),
+	})
+	if err != nil {
+		return err
+	}
+	r.CAPEMpublic = caPublicKeyPEM.Bytes()
+
+	caprivateBytes := []byte(certPrivateKeyPEM)
+	blockpriv, _ := pem.Decode(caprivateBytes)
+	caprivate, err := x509.ParsePKCS1PrivateKey(blockpriv.Bytes)
+	if err != nil {
+		return err
+	}
+	r.CAPEMprivate = caprivateBytes
+	r.CAPrivate = caprivate
+
+	r.CommonName = r.CACert.Subject.CommonName
+	if len(r.CACert.Subject.Organization) > 0 {
+		r.Organization = r.CACert.Subject.Organization[0]
+	}
+	// r.Organization = r.CACert.Subject.Organization
+	// TLS
+	tlscert, err := tls.X509KeyPair(r.CAPEMcert, r.CAPEMprivate)
+	if err != nil {
+		return err
+	}
+	r.TLSCACert = &tlscert
+	//TODO: load other certificate paramters into the structure, like organization, notbefore, etc...
+	return nil
+}
+
 /*
 
 Intermediate Certificate
@@ -490,6 +536,50 @@ func (i *IntermediateCert) LoadIntermediateCAFromFiles(certPEMFile string, certP
 	if err != nil {
 		return err
 	}
+	blockpriv, _ := pem.Decode(caprivateBytes)
+	caprivate, err := x509.ParsePKCS1PrivateKey(blockpriv.Bytes)
+	if err != nil {
+		return err
+	}
+	i.CAPEMprivate = caprivateBytes
+	i.CAPrivate = caprivate
+
+	i.CommonName = i.CACert.Subject.CommonName
+	if len(i.CACert.Subject.Organization) > 0 {
+		i.Organization = i.CACert.Subject.Organization[0]
+	}
+	// i.Organization = i.CACert.Subject.Organization
+	// TLS
+	tlscert, err := tls.X509KeyPair(i.CAPEMcert, i.CAPEMprivate)
+	if err != nil {
+		return err
+	}
+	i.TLSCACert = &tlscert
+	return nil
+}
+func (i *IntermediateCert) LoadIntermediateCAFromPEM(certPEM string, certPrivateKeyPEM string) error {
+
+	cabytes := []byte(certPEM)
+	i.CAPEMcert = cabytes
+	// var pubkey *rsa.PublicKey
+	block, _ := pem.Decode(cabytes)
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return err
+	}
+	i.CACert = cert
+	i.CAPublic = cert.PublicKey.(*rsa.PublicKey)
+	caPublicKeyPEM := new(bytes.Buffer)
+	err = pem.Encode(caPublicKeyPEM, &pem.Block{
+		Type:  "RSA PUBLIC KEY",
+		Bytes: x509.MarshalPKCS1PublicKey(i.CAPublic),
+	})
+	if err != nil {
+		return err
+	}
+	i.CAPEMpublic = caPublicKeyPEM.Bytes()
+
+	caprivateBytes := []byte(certPrivateKeyPEM)
 	blockpriv, _ := pem.Decode(caprivateBytes)
 	caprivate, err := x509.ParsePKCS1PrivateKey(blockpriv.Bytes)
 	if err != nil {
@@ -896,6 +986,66 @@ func (s *ServerCert) LoadServerCertFromFiles(certPEMFile string, certPrivateKeyP
 	if err != nil {
 		return err
 	}
+	blockpriv, _ := pem.Decode(privateBytes)
+	private, err := x509.ParsePKCS1PrivateKey(blockpriv.Bytes)
+	if err != nil {
+		return err
+	}
+	s.PEMprivate = privateBytes
+	s.PrivateKey = private
+
+	s.CommonName = s.Cert.Subject.CommonName
+	if len(s.Cert.Subject.Organization) > 0 {
+		s.Organization = s.Cert.Subject.Organization[0]
+	}
+	if len(s.Cert.Subject.Country) > 0 {
+		s.Country = s.Cert.Subject.Country[0]
+	}
+	if len(s.Cert.Subject.Province) > 0 {
+		s.Province = s.Cert.Subject.Province[0]
+	}
+	if len(s.Cert.Subject.Locality) > 0 {
+		s.Locality = s.Cert.Subject.Locality[0]
+	}
+	// s.Organization = s.Cert.Subject.Organization
+	// s.Country = s.Cert.Subject.Country
+	// s.Province = s.Cert.Subject.Province
+	// s.Locality = s.Cert.Subject.Locality
+	s.IPAddresses = s.Cert.IPAddresses
+	s.DNSNames = s.Cert.DNSNames
+	// TLS
+	tlscert, err := tls.X509KeyPair(s.PEMcert, s.PEMprivate)
+	if err != nil {
+		return err
+	}
+	s.TLSCert = &tlscert
+	//TODO: load other certificate paramters into the structure, like organization, notbefore, etc...
+	return nil
+}
+
+func (s *ServerCert) LoadServerCertFromPEM(certPEM string, certPrivateKeyPEM string) error {
+
+	certbytes := []byte(certPEM)
+	s.PEMcert = certbytes
+	// var pubkey *rsa.PublicKey
+	block, _ := pem.Decode(certbytes)
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return err
+	}
+	s.Cert = cert
+	s.PublicKey = cert.PublicKey.(*rsa.PublicKey)
+	certPublicKeyPEM := new(bytes.Buffer)
+	err = pem.Encode(certPublicKeyPEM, &pem.Block{
+		Type:  "RSA PUBLIC KEY",
+		Bytes: x509.MarshalPKCS1PublicKey(s.PublicKey),
+	})
+	if err != nil {
+		return err
+	}
+	s.PEMpublic = certPublicKeyPEM.Bytes()
+
+	privateBytes := []byte(certPrivateKeyPEM)
 	blockpriv, _ := pem.Decode(privateBytes)
 	private, err := x509.ParsePKCS1PrivateKey(blockpriv.Bytes)
 	if err != nil {
@@ -1369,6 +1519,61 @@ func (c *ClientCert) LoadClientCertFromFiles(certPEMFile string, certPrivateKeyP
 	return nil
 }
 
+func (c *ClientCert) LoadClientCertFromPEM(certPEM string, certPrivateKeyPEM string) error {
+
+	certbytes := []byte(certPEM)
+	c.PEMcert = certbytes
+	// var pubkey *rsa.PublicKey
+	block, _ := pem.Decode(certbytes)
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return err
+	}
+	c.Cert = cert
+	c.PublicKey = cert.PublicKey.(*rsa.PublicKey)
+	certPublicKeyPEM := new(bytes.Buffer)
+	err = pem.Encode(certPublicKeyPEM, &pem.Block{
+		Type:  "RSA PUBLIC KEY",
+		Bytes: x509.MarshalPKCS1PublicKey(c.PublicKey),
+	})
+	if err != nil {
+		return err
+	}
+	c.PEMpublic = certPublicKeyPEM.Bytes()
+
+	privateBytes := []byte(certPrivateKeyPEM)
+	blockpriv, _ := pem.Decode(privateBytes)
+	private, err := x509.ParsePKCS1PrivateKey(blockpriv.Bytes)
+	if err != nil {
+		return err
+	}
+	c.PEMprivate = privateBytes
+	c.PrivateKey = private
+
+	c.CommonName = c.Cert.Subject.CommonName
+	if len(c.Cert.Subject.Organization) > 0 {
+		c.Organization = c.Cert.Subject.Organization[0]
+	}
+	if len(c.Cert.Subject.Country) > 0 {
+		c.Country = c.Cert.Subject.Country[0]
+	}
+	if len(c.Cert.Subject.Province) > 0 {
+		c.Province = c.Cert.Subject.Province[0]
+	}
+	if len(c.Cert.Subject.Locality) > 0 {
+		c.Locality = c.Cert.Subject.Locality[0]
+	}
+	// c.IPAddresses = c.Cert.IPAddresses
+	// c.DNSNames = c.Cert.DNSNames
+	// TLS
+	tlscert, err := tls.X509KeyPair(c.PEMcert, c.PEMprivate)
+	if err != nil {
+		return err
+	}
+	c.TLSCert = &tlscert
+	return nil
+}
+
 func SignClientCSR(csrfilePEM string, TargetFolder string, NotAfterNumberOfYears uint8, cacert *x509.Certificate, caprivateKey *rsa.PrivateKey) ([]string, error) {
 	if _, err := os.Stat(csrfilePEM); os.IsNotExist(err) {
 		// path/to/whatever does not exist
@@ -1805,6 +2010,60 @@ func (p *PeerCert) LoadPeerCertFromFiles(certPEMFile string, certPrivateKeyPEMFi
 	return nil
 }
 
+func (p *PeerCert) LoadPeerCertFromPEM(certPEM string, certPrivateKeyPEM string) error {
+
+	certbytes := []byte(certPEM)
+	p.PEMcert = certbytes
+	// var pubkey *rsa.PublicKey
+	block, _ := pem.Decode(certbytes)
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return err
+	}
+	p.Cert = cert
+	p.PublicKey = cert.PublicKey.(*rsa.PublicKey)
+	certPublicKeyPEM := new(bytes.Buffer)
+	err = pem.Encode(certPublicKeyPEM, &pem.Block{
+		Type:  "RSA PUBLIC KEY",
+		Bytes: x509.MarshalPKCS1PublicKey(p.PublicKey),
+	})
+	if err != nil {
+		return err
+	}
+	p.PEMpublic = certPublicKeyPEM.Bytes()
+
+	privateBytes := []byte(certPrivateKeyPEM)
+	blockpriv, _ := pem.Decode(privateBytes)
+	private, err := x509.ParsePKCS1PrivateKey(blockpriv.Bytes)
+	if err != nil {
+		return err
+	}
+	p.PEMprivate = privateBytes
+	p.PrivateKey = private
+
+	p.CommonName = p.Cert.Subject.CommonName
+	if len(p.Cert.Subject.Organization) > 0 {
+		p.Organization = p.Cert.Subject.Organization[0]
+	}
+	if len(p.Cert.Subject.Country) > 0 {
+		p.Country = p.Cert.Subject.Country[0]
+	}
+	if len(p.Cert.Subject.Province) > 0 {
+		p.Province = p.Cert.Subject.Province[0]
+	}
+	if len(p.Cert.Subject.Locality) > 0 {
+		p.Locality = p.Cert.Subject.Locality[0]
+	}
+	p.IPAddresses = p.Cert.IPAddresses
+	p.DNSNames = p.Cert.DNSNames
+	// TLS
+	tlscert, err := tls.X509KeyPair(p.PEMcert, p.PEMprivate)
+	if err != nil {
+		return err
+	}
+	p.TLSCert = &tlscert
+	return nil
+}
 func SignPeerCSR(csrfilePEM string, TargetFolder string, NotAfterNumberOfYears uint8, cacert *x509.Certificate, caprivateKey *rsa.PrivateKey) ([]string, error) {
 	if _, err := os.Stat(csrfilePEM); os.IsNotExist(err) {
 		// path/to/whatever does not exist
