@@ -177,6 +177,9 @@ func (r *RootCA) LoadRootCAFromFiles(certPEMFile string, certPrivateKeyPEMFile s
 	r.CAPEMcert = cabytes
 	// var pubkey *rsa.PublicKey
 	block, _ := pem.Decode(cabytes)
+	if block == nil {
+		return errors.New("PEM Decode failed")
+	}
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
 		return err
@@ -220,12 +223,15 @@ func (r *RootCA) LoadRootCAFromFiles(certPEMFile string, certPrivateKeyPEMFile s
 	return nil
 }
 
-func (r *RootCA) LoadRootCAFromPEMString(certPEM string, certPrivateKeyPEM string) error {
+func (r *RootCA) LoadRootCAFromPEM(certPEM string, certPrivateKeyPEM string) error {
 
 	cabytes := []byte(certPEM)
 	r.CAPEMcert = cabytes
 	// var pubkey *rsa.PublicKey
 	block, _ := pem.Decode(cabytes)
+	if block == nil {
+		return errors.New("PEM Decode failed")
+	}
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
 		return err
@@ -516,6 +522,9 @@ func (i *IntermediateCert) LoadIntermediateCAFromFiles(certPEMFile string, certP
 	i.CAPEMcert = cabytes
 	// var pubkey *rsa.PublicKey
 	block, _ := pem.Decode(cabytes)
+	if block == nil {
+		return errors.New("PEM Decode failed")
+	}
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
 		return err
@@ -563,6 +572,9 @@ func (i *IntermediateCert) LoadIntermediateCAFromPEM(certPEM string, certPrivate
 	i.CAPEMcert = cabytes
 	// var pubkey *rsa.PublicKey
 	block, _ := pem.Decode(cabytes)
+	if block == nil {
+		return errors.New("PEM Decode failed")
+	}
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
 		return err
@@ -613,6 +625,9 @@ func SignIntermediateCSR(csrfilePEM string, TargetFolder string, NotAfterNumberO
 		return nil, err
 	}
 	block, _ := pem.Decode(csrbytes)
+	if block == nil {
+		return nil, errors.New("PEM Decode failed")
+	}
 	csr, err := x509.ParseCertificateRequest(block.Bytes)
 	if err != nil {
 		return nil, err
@@ -628,12 +643,15 @@ func SignIntermediateCSR(csrfilePEM string, TargetFolder string, NotAfterNumberO
 		return nil, err
 	}
 	ca := &x509.Certificate{
-		SerialNumber:          n,
-		Subject:               csr.Subject,
-		NotBefore:             notebefore,
-		NotAfter:              notafter,
-		SignatureAlgorithm:    csr.SignatureAlgorithm,
-		Signature:             csr.Signature,
+		SerialNumber:       n,
+		Subject:            csr.Subject,
+		NotBefore:          notebefore,
+		NotAfter:           notafter,
+		Signature:          csr.Signature,
+		SignatureAlgorithm: csr.SignatureAlgorithm,
+
+		PublicKeyAlgorithm:    csr.PublicKeyAlgorithm,
+		PublicKey:             csr.PublicKey,
 		IsCA:                  true,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
 		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
@@ -666,6 +684,61 @@ func SignIntermediateCSR(csrfilePEM string, TargetFolder string, NotAfterNumberO
 	}
 	ListOfFilesCreated = append(ListOfFilesCreated, signedCertFileName)
 	return ListOfFilesCreated, nil
+}
+
+func SignIntermediateCSRPEM(csrPEM []byte, NotAfterNumberOfYears uint8, rootcert *x509.Certificate, rootprivateKey *rsa.PrivateKey) ([]byte, error) {
+
+	block, _ := pem.Decode(csrPEM)
+	if block == nil {
+		return nil, errors.New("PEM Decode failed")
+	}
+	csr, err := x509.ParseCertificateRequest(block.Bytes)
+	if err != nil {
+		return nil, err
+	}
+	notebefore := time.Now()
+	if NotAfterNumberOfYears == 0 {
+		NotAfterNumberOfYears = 15
+	}
+	notafter := time.Now().AddDate(int(NotAfterNumberOfYears), 0, 0)
+	// Cryptographically secure.
+	n, err := rand.Int(rand.Reader, big.NewInt(1000000))
+	if err != nil {
+		return nil, err
+	}
+	ca := &x509.Certificate{
+		SerialNumber:       n,
+		Subject:            csr.Subject,
+		NotBefore:          notebefore,
+		NotAfter:           notafter,
+		Signature:          csr.Signature,
+		SignatureAlgorithm: csr.SignatureAlgorithm,
+
+		PublicKeyAlgorithm:    csr.PublicKeyAlgorithm,
+		PublicKey:             csr.PublicKey,
+		IsCA:                  true,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		BasicConstraintsValid: true,
+	}
+	//Sanity check
+	if ca.Subject.String() == rootcert.Subject.String() {
+		return nil, fmt.Errorf("Intermediate Certificate Cannot have same subject name as Root: %s", ca.Subject.String())
+	}
+	certBytes, err := x509.CreateCertificate(rand.Reader, ca, rootcert, &rootprivateKey.PublicKey, rootprivateKey)
+	if err != nil {
+		return nil, err
+	}
+	certPEM := new(bytes.Buffer)
+	err = pem.Encode(certPEM, &pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: certBytes,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return certPEM.Bytes(), nil
 }
 
 /*
@@ -966,6 +1039,9 @@ func (s *ServerCert) LoadServerCertFromFiles(certPEMFile string, certPrivateKeyP
 	s.PEMcert = certbytes
 	// var pubkey *rsa.PublicKey
 	block, _ := pem.Decode(certbytes)
+	if block == nil {
+		return errors.New("PEM Decode failed")
+	}
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
 		return err
@@ -1029,6 +1105,9 @@ func (s *ServerCert) LoadServerCertFromPEM(certPEM string, certPrivateKeyPEM str
 	s.PEMcert = certbytes
 	// var pubkey *rsa.PublicKey
 	block, _ := pem.Decode(certbytes)
+	if block == nil {
+		return errors.New("PEM Decode failed")
+	}
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
 		return err
@@ -1095,6 +1174,9 @@ func SignServerCSR(csrfilePEM string, TargetFolder string, NotAfterNumberOfYears
 		return nil, err
 	}
 	block, _ := pem.Decode(csrbytes)
+	if block == nil {
+		return nil, errors.New("PEM Decode failed")
+	}
 	csr, err := x509.ParseCertificateRequest(block.Bytes)
 	if err != nil {
 		return nil, err
@@ -1116,8 +1198,11 @@ func SignServerCSR(csrfilePEM string, TargetFolder string, NotAfterNumberOfYears
 		IPAddresses:        csr.IPAddresses,
 		NotBefore:          notebefore,
 		NotAfter:           notafter,
-		SignatureAlgorithm: csr.SignatureAlgorithm,
 		Signature:          csr.Signature,
+		SignatureAlgorithm: csr.SignatureAlgorithm,
+
+		PublicKeyAlgorithm: csr.PublicKeyAlgorithm,
+		PublicKey:          csr.PublicKey,
 		// SubjectKeyId: []byte{1, 2, 3, 4, 6},
 		// ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
@@ -1173,6 +1258,59 @@ func SignServerCSR(csrfilePEM string, TargetFolder string, NotAfterNumberOfYears
 	}
 
 	return ListOfFilesCreated, nil
+}
+
+func SignServerCSRPEM(csrPEM []byte, NotAfterNumberOfYears uint8, cacert *x509.Certificate, caprivateKey *rsa.PrivateKey) ([]byte, error) {
+
+	block, _ := pem.Decode(csrPEM)
+	if block == nil {
+		return nil, errors.New("PEM Decode failed")
+	}
+	csr, err := x509.ParseCertificateRequest(block.Bytes)
+	if err != nil {
+		return nil, err
+	}
+	notebefore := time.Now()
+	if NotAfterNumberOfYears == 0 {
+		NotAfterNumberOfYears = 10
+	}
+	notafter := time.Now().AddDate(int(NotAfterNumberOfYears), 0, 0)
+	// Cryptographically secure.
+	n, err := rand.Int(rand.Reader, big.NewInt(1000000))
+	if err != nil {
+		return nil, err
+	}
+	cert := &x509.Certificate{
+		SerialNumber:       n,
+		Subject:            csr.Subject,
+		DNSNames:           csr.DNSNames,
+		IPAddresses:        csr.IPAddresses,
+		NotBefore:          notebefore,
+		NotAfter:           notafter,
+		Signature:          csr.Signature,
+		SignatureAlgorithm: csr.SignatureAlgorithm,
+
+		PublicKeyAlgorithm: csr.PublicKeyAlgorithm,
+		PublicKey:          csr.PublicKey,
+		// SubjectKeyId: []byte{1, 2, 3, 4, 6},
+		// ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		KeyUsage:    x509.KeyUsageDigitalSignature,
+	}
+	certBytes, err := x509.CreateCertificate(rand.Reader, cert, cacert, &caprivateKey.PublicKey, caprivateKey)
+	if err != nil {
+		return nil, err
+	}
+	certPEM := new(bytes.Buffer)
+	err = pem.Encode(certPEM, &pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: certBytes,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return certPEM.Bytes(), nil
 }
 
 /*
@@ -1467,6 +1605,9 @@ func (c *ClientCert) LoadClientCertFromFiles(certPEMFile string, certPrivateKeyP
 	c.PEMcert = certbytes
 	// var pubkey *rsa.PublicKey
 	block, _ := pem.Decode(certbytes)
+	if block == nil {
+		return errors.New("PEM Decode failed")
+	}
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
 		return err
@@ -1525,6 +1666,9 @@ func (c *ClientCert) LoadClientCertFromPEM(certPEM string, certPrivateKeyPEM str
 	c.PEMcert = certbytes
 	// var pubkey *rsa.PublicKey
 	block, _ := pem.Decode(certbytes)
+	if block == nil {
+		return errors.New("PEM Decode failed")
+	}
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
 		return err
@@ -1575,6 +1719,7 @@ func (c *ClientCert) LoadClientCertFromPEM(certPEM string, certPrivateKeyPEM str
 }
 
 func SignClientCSR(csrfilePEM string, TargetFolder string, NotAfterNumberOfYears uint8, cacert *x509.Certificate, caprivateKey *rsa.PrivateKey) ([]string, error) {
+
 	if _, err := os.Stat(csrfilePEM); os.IsNotExist(err) {
 		// path/to/whatever does not exist
 		return nil, fmt.Errorf(fmt.Sprintf("cannot find: %s", csrfilePEM))
@@ -1586,6 +1731,9 @@ func SignClientCSR(csrfilePEM string, TargetFolder string, NotAfterNumberOfYears
 		return nil, err
 	}
 	block, _ := pem.Decode(csrbytes)
+	if block == nil {
+		return nil, errors.New("PEM Decode failed")
+	}
 	csr, err := x509.ParseCertificateRequest(block.Bytes)
 	if err != nil {
 		return nil, err
@@ -1608,8 +1756,11 @@ func SignClientCSR(csrfilePEM string, TargetFolder string, NotAfterNumberOfYears
 		// IPAddresses:        csr.IPAddresses,
 		NotBefore:          notebefore,
 		NotAfter:           notafter,
-		SignatureAlgorithm: csr.SignatureAlgorithm,
 		Signature:          csr.Signature,
+		SignatureAlgorithm: csr.SignatureAlgorithm,
+
+		PublicKeyAlgorithm: csr.PublicKeyAlgorithm,
+		PublicKey:          csr.PublicKey,
 		// SubjectKeyId: []byte{1, 2, 3, 4, 6},
 		// ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
@@ -1664,6 +1815,60 @@ func SignClientCSR(csrfilePEM string, TargetFolder string, NotAfterNumberOfYears
 		ListOfFilesCreated = append(ListOfFilesCreated, certBundleFileName)
 	}
 	return ListOfFilesCreated, nil
+}
+
+func SignClientCSRPEM(csrPEM []byte, NotAfterNumberOfYears uint8, cacert *x509.Certificate, caprivateKey *rsa.PrivateKey) ([]byte, error) {
+
+	block, _ := pem.Decode(csrPEM)
+	if block == nil {
+		return nil, errors.New("PEM Decode failed")
+	}
+	csr, err := x509.ParseCertificateRequest(block.Bytes)
+	if err != nil {
+		return nil, err
+	}
+	notebefore := time.Now()
+	if NotAfterNumberOfYears == 0 {
+		NotAfterNumberOfYears = 5
+	}
+	notafter := time.Now().AddDate(int(NotAfterNumberOfYears), 0, 0)
+	// Cryptographically secure.
+	n, err := rand.Int(rand.Reader, big.NewInt(1000000))
+	if err != nil {
+		return nil, err
+	}
+	cert := &x509.Certificate{
+		SerialNumber: n,
+		Subject:      csr.Subject,
+		// DNSNames:           csr.DNSNames,
+		// IPAddresses:        csr.IPAddresses,
+		NotBefore:          notebefore,
+		NotAfter:           notafter,
+		Signature:          csr.Signature,
+		SignatureAlgorithm: csr.SignatureAlgorithm,
+
+		PublicKeyAlgorithm: csr.PublicKeyAlgorithm,
+		PublicKey:          csr.PublicKey,
+
+		// SubjectKeyId: []byte{1, 2, 3, 4, 6},
+		// ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		KeyUsage:    x509.KeyUsageDigitalSignature,
+	}
+	certBytes, err := x509.CreateCertificate(rand.Reader, cert, cacert, &caprivateKey.PublicKey, caprivateKey)
+	if err != nil {
+		return nil, err
+	}
+	certPEM := new(bytes.Buffer)
+	err = pem.Encode(certPEM, &pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: certBytes,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return certPEM.Bytes(), nil
 }
 
 /*
@@ -1958,6 +2163,9 @@ func (p *PeerCert) LoadPeerCertFromFiles(certPEMFile string, certPrivateKeyPEMFi
 	p.PEMcert = certbytes
 	// var pubkey *rsa.PublicKey
 	block, _ := pem.Decode(certbytes)
+	if block == nil {
+		return errors.New("PEM Decode failed")
+	}
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
 		return err
@@ -2016,6 +2224,9 @@ func (p *PeerCert) LoadPeerCertFromPEM(certPEM string, certPrivateKeyPEM string)
 	p.PEMcert = certbytes
 	// var pubkey *rsa.PublicKey
 	block, _ := pem.Decode(certbytes)
+	if block == nil {
+		return errors.New("PEM Decode failed")
+	}
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
 		return err
@@ -2076,6 +2287,9 @@ func SignPeerCSR(csrfilePEM string, TargetFolder string, NotAfterNumberOfYears u
 		return nil, err
 	}
 	block, _ := pem.Decode(csrbytes)
+	if block == nil {
+		return nil, errors.New("PEM Decode failed")
+	}
 	csr, err := x509.ParseCertificateRequest(block.Bytes)
 	if err != nil {
 		return nil, err
@@ -2098,8 +2312,11 @@ func SignPeerCSR(csrfilePEM string, TargetFolder string, NotAfterNumberOfYears u
 		IPAddresses:        csr.IPAddresses,
 		NotBefore:          notebefore,
 		NotAfter:           notafter,
-		SignatureAlgorithm: csr.SignatureAlgorithm,
 		Signature:          csr.Signature,
+		SignatureAlgorithm: csr.SignatureAlgorithm,
+
+		PublicKeyAlgorithm: csr.PublicKeyAlgorithm,
+		PublicKey:          csr.PublicKey,
 		// SubjectKeyId: []byte{1, 2, 3, 4, 6},
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
 		KeyUsage:    x509.KeyUsageDigitalSignature,
@@ -2153,6 +2370,58 @@ func SignPeerCSR(csrfilePEM string, TargetFolder string, NotAfterNumberOfYears u
 		ListOfFilesCreated = append(ListOfFilesCreated, certBundleFileName)
 	}
 	return ListOfFilesCreated, nil
+}
+
+func SignPeerCSRPEM(csrPEM []byte, NotAfterNumberOfYears uint8, cacert *x509.Certificate, caprivateKey *rsa.PrivateKey) ([]byte, error) {
+
+	block, _ := pem.Decode(csrPEM)
+	if block == nil {
+		return nil, errors.New("PEM Decode failed")
+	}
+	csr, err := x509.ParseCertificateRequest(block.Bytes)
+	if err != nil {
+		return nil, err
+	}
+	notebefore := time.Now()
+	if NotAfterNumberOfYears == 0 {
+		NotAfterNumberOfYears = 5
+	}
+	notafter := time.Now().AddDate(int(NotAfterNumberOfYears), 0, 0)
+	// Cryptographically secure.
+	n, err := rand.Int(rand.Reader, big.NewInt(1000000))
+	if err != nil {
+		return nil, err
+	}
+	cert := &x509.Certificate{
+		SerialNumber:       n,
+		Subject:            csr.Subject,
+		DNSNames:           csr.DNSNames,
+		IPAddresses:        csr.IPAddresses,
+		NotBefore:          notebefore,
+		NotAfter:           notafter,
+		Signature:          csr.Signature,
+		SignatureAlgorithm: csr.SignatureAlgorithm,
+
+		PublicKeyAlgorithm: csr.PublicKeyAlgorithm,
+		PublicKey:          csr.PublicKey,
+		// SubjectKeyId: []byte{1, 2, 3, 4, 6},
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
+		KeyUsage:    x509.KeyUsageDigitalSignature,
+	}
+	certBytes, err := x509.CreateCertificate(rand.Reader, cert, cacert, &caprivateKey.PublicKey, caprivateKey)
+	if err != nil {
+		return nil, err
+	}
+	certPEM := new(bytes.Buffer)
+	err = pem.Encode(certPEM, &pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: certBytes,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return certPEM.Bytes(), nil
 }
 
 /*
