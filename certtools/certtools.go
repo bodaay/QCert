@@ -661,7 +661,7 @@ func SignIntermediateCSR(csrfilePEM string, TargetFolder string, NotAfterNumberO
 	if ca.Subject.String() == rootcert.Subject.String() {
 		return nil, fmt.Errorf("Intermediate Certificate Cannot have same subject name as Root: %s", ca.Subject.String())
 	}
-	certBytes, err := x509.CreateCertificate(rand.Reader, ca, rootcert, &rootprivateKey.PublicKey, rootprivateKey)
+	certBytes, err := x509.CreateCertificate(rand.Reader, ca, rootcert, csr.PublicKey, rootprivateKey)
 	if err != nil {
 		return nil, err
 	}
@@ -725,7 +725,7 @@ func SignIntermediateCSRPEM(csrPEM []byte, NotAfterNumberOfYears uint8, rootcert
 	if ca.Subject.String() == rootcert.Subject.String() {
 		return nil, fmt.Errorf("Intermediate Certificate Cannot have same subject name as Root: %s", ca.Subject.String())
 	}
-	certBytes, err := x509.CreateCertificate(rand.Reader, ca, rootcert, &rootprivateKey.PublicKey, rootprivateKey)
+	certBytes, err := x509.CreateCertificate(rand.Reader, ca, rootcert, csr.PublicKey, rootprivateKey)
 	if err != nil {
 		return nil, err
 	}
@@ -1208,7 +1208,7 @@ func SignServerCSR(csrfilePEM string, TargetFolder string, NotAfterNumberOfYears
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		KeyUsage:    x509.KeyUsageDigitalSignature,
 	}
-	certBytes, err := x509.CreateCertificate(rand.Reader, cert, cacert, &caprivateKey.PublicKey, caprivateKey)
+	certBytes, err := x509.CreateCertificate(rand.Reader, cert, cacert, csr.PublicKey, caprivateKey)
 	if err != nil {
 		return nil, err
 	}
@@ -1297,7 +1297,7 @@ func SignServerCSRPEM(csrPEM []byte, NotAfterNumberOfYears uint8, cacert *x509.C
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		KeyUsage:    x509.KeyUsageDigitalSignature,
 	}
-	certBytes, err := x509.CreateCertificate(rand.Reader, cert, cacert, &caprivateKey.PublicKey, caprivateKey)
+	certBytes, err := x509.CreateCertificate(rand.Reader, cert, cacert, csr.PublicKey, caprivateKey)
 	if err != nil {
 		return nil, err
 	}
@@ -1766,7 +1766,7 @@ func SignClientCSR(csrfilePEM string, TargetFolder string, NotAfterNumberOfYears
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 		KeyUsage:    x509.KeyUsageDigitalSignature,
 	}
-	certBytes, err := x509.CreateCertificate(rand.Reader, cert, cacert, &caprivateKey.PublicKey, caprivateKey)
+	certBytes, err := x509.CreateCertificate(rand.Reader, cert, cacert, csr.PublicKey, caprivateKey)
 	if err != nil {
 		return nil, err
 	}
@@ -1855,7 +1855,7 @@ func SignClientCSRPEM(csrPEM []byte, NotAfterNumberOfYears uint8, cacert *x509.C
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 		KeyUsage:    x509.KeyUsageDigitalSignature,
 	}
-	certBytes, err := x509.CreateCertificate(rand.Reader, cert, cacert, &caprivateKey.PublicKey, caprivateKey)
+	certBytes, err := x509.CreateCertificate(rand.Reader, cert, cacert, csr.PublicKey, caprivateKey)
 	if err != nil {
 		return nil, err
 	}
@@ -2321,7 +2321,7 @@ func SignPeerCSR(csrfilePEM string, TargetFolder string, NotAfterNumberOfYears u
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
 		KeyUsage:    x509.KeyUsageDigitalSignature,
 	}
-	certBytes, err := x509.CreateCertificate(rand.Reader, cert, cacert, &caprivateKey.PublicKey, caprivateKey)
+	certBytes, err := x509.CreateCertificate(rand.Reader, cert, cacert, csr.PublicKey, caprivateKey)
 	if err != nil {
 		return nil, err
 	}
@@ -2408,7 +2408,7 @@ func SignPeerCSRPEM(csrPEM []byte, NotAfterNumberOfYears uint8, cacert *x509.Cer
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
 		KeyUsage:    x509.KeyUsageDigitalSignature,
 	}
-	certBytes, err := x509.CreateCertificate(rand.Reader, cert, cacert, &caprivateKey.PublicKey, caprivateKey)
+	certBytes, err := x509.CreateCertificate(rand.Reader, cert, cacert, csr.PublicKey, caprivateKey)
 	if err != nil {
 		return nil, err
 	}
