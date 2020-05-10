@@ -1002,7 +1002,7 @@ func peerCreateNewSignedCertificateRoute(e *echo.Echo) {
 		if r.Organization == "" {
 			return c.String(http.StatusBadRequest, "Organization Cannot be empty")
 		}
-		rr := ServerCert{
+		rr := PeerCert{
 			CommonName:            r.CommonName,
 			Organization:          r.Organization,
 			Country:               r.Country,
@@ -1077,7 +1077,7 @@ func peerCreateNewSignedCertificateRoute(e *echo.Echo) {
 		if _, err = io.Copy(dst1, src1); err != nil {
 			return c.String(http.StatusBadRequest, err.Error())
 		}
-		outFilesList, err := rr.CreateAndSignNewServerCert(tmepFolderName, ca.CACert, ca.CAPrivate)
+		outFilesList, err := rr.CreateAndSignNewPeerCert(tmepFolderName, ca.CACert, ca.CAPrivate)
 		if err != nil {
 			return c.String(http.StatusBadRequest, err.Error())
 		}
